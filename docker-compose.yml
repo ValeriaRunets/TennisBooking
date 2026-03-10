@@ -1,0 +1,8 @@
+services:
+  tennis-bot:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./browser_data:/app/browser_data
+    restart: unless-stopped
