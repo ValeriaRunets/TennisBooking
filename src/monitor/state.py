@@ -5,34 +5,32 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
-from datetime import date, time
+from datetime import time
 from pathlib import Path
 
 from config.settings import STATE_FILE_PATH
-from src.models.types import AppState, Watch
+from src.models.types import AppState, MonitoredLink
 
 logger = logging.getLogger(__name__)
 
 
-def _watch_to_dict(w: Watch) -> dict:
+def _link_to_dict(link: MonitoredLink) -> dict:
     return {
-        "id": w.id,
-        "location_slug": w.location_slug,
-        "dates": [d.isoformat() for d in w.dates],
-        "time_start": w.time_start.strftime("%H:%M") if w.time_start else None,
-        "time_end": w.time_end.strftime("%H:%M") if w.time_end else None,
-        "active": w.active,
-        "created_at": w.created_at,
+        "id": link.id,
+        "url": link.url,
+        "desired_time": link.desired_time.strftime("%H:%M"),
+        "label": link.label,
+        "active": link.active,
+        "created_at": link.created_at,
     }
 
 
-def _watch_from_dict(d: dict) -> Watch:
-    return Watch(
+def _link_from_dict(d: dict) -> MonitoredLink:
+    return MonitoredLink(
         id=d["id"],
-        location_slug=d["location_slug"],
-        dates=[date.fromisoformat(s) for s in d["dates"]],
-        time_start=time.fromisoformat(d["time_start"]) if d.get("time_start") else None,
-        time_end=time.fromisoformat(d["time_end"]) if d.get("time_end") else None,
+        url=d["url"],
+        desired_time=time.fromisoformat(d["desired_time"]),
+        label=d.get("label", ""),
         active=d.get("active", True),
         created_at=d.get("created_at", ""),
     )
@@ -48,8 +46,8 @@ class StateManager:
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
             return AppState(
-                watches=[_watch_from_dict(w) for w in raw.get("watches", [])],
-                last_seen=raw.get("last_seen", {}),
+                links=[_link_from_dict(l) for l in raw.get("links", [])],
+                notified=raw.get("notified", {}),
                 monitoring_enabled=raw.get("monitoring_enabled", True),
             )
         except Exception:
@@ -59,8 +57,8 @@ class StateManager:
     def save(self, state: AppState) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "watches": [_watch_to_dict(w) for w in state.watches],
-            "last_seen": state.last_seen,
+            "links": [_link_to_dict(l) for l in state.links],
+            "notified": state.notified,
             "monitoring_enabled": state.monitoring_enabled,
         }
         # Atomic write
@@ -76,28 +74,36 @@ class StateManager:
             raise
         logger.debug("State saved to %s", self._path)
 
-    def add_watch(self, watch: Watch) -> None:
+    def add_link(self, link: MonitoredLink) -> None:
         state = self.load()
-        state.watches.append(watch)
+        state.links.append(link)
         self.save(state)
 
-    def remove_watch(self, watch_id: str) -> bool:
+    def remove_link(self, link_id: str) -> bool:
         state = self.load()
-        before = len(state.watches)
-        state.watches = [w for w in state.watches if w.id != watch_id]
-        if len(state.watches) < before:
+        before = len(state.links)
+        state.links = [l for l in state.links if l.id != link_id]
+        # Also clean up notified entries
+        state.notified.pop(link_id, None)
+        if len(state.links) < before:
             self.save(state)
             return True
         return False
 
-    def cleanup_expired(self) -> int:
-        """Remove watches whose dates have all passed."""
+    def update_link(self, link_id: str, url: str | None = None,
+                    desired_time: time | None = None,
+                    label: str | None = None) -> bool:
         state = self.load()
-        today = date.today()
-        before = len(state.watches)
-        state.watches = [w for w in state.watches if any(d >= today for d in w.dates)]
-        removed = before - len(state.watches)
-        if removed:
-            self.save(state)
-            logger.info("Cleaned up %d expired watches", removed)
-        return removed
+        for link in state.links:
+            if link.id == link_id:
+                if url is not None:
+                    link.url = url
+                if desired_time is not None:
+                    link.desired_time = desired_time
+                if label is not None:
+                    link.label = label
+                # Reset notifications for this link since params changed
+                state.notified.pop(link_id, None)
+                self.save(state)
+                return True
+        return False

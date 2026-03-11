@@ -1,8 +1,7 @@
-import json
-from datetime import date, time
+from datetime import time
 from pathlib import Path
 
-from src.models.types import Watch
+from src.models.types import MonitoredLink
 from src.monitor.state import StateManager
 
 
@@ -10,59 +9,57 @@ def test_save_and_load(tmp_path: Path):
     state_file = tmp_path / "state.json"
     mgr = StateManager(state_file)
 
-    watch = Watch(
-        location_slug="test-centre",
-        dates=[date(2026, 3, 15), date(2026, 3, 16)],
-        time_start=time(18, 0),
-        time_end=time(21, 0),
+    link = MonitoredLink(
+        url="https://bookings.better.org.uk/location/test/tennis/2026-03-15/by-time",
+        desired_time=time(18, 0),
+        label="Test Court",
     )
-    mgr.add_watch(watch)
+    mgr.add_link(link)
 
     state = mgr.load()
-    assert len(state.watches) == 1
-    assert state.watches[0].id == watch.id
-    assert state.watches[0].location_slug == "test-centre"
-    assert state.watches[0].dates == [date(2026, 3, 15), date(2026, 3, 16)]
-    assert state.watches[0].time_start == time(18, 0)
+    assert len(state.links) == 1
+    assert state.links[0].id == link.id
+    assert state.links[0].url == link.url
+    assert state.links[0].desired_time == time(18, 0)
+    assert state.links[0].label == "Test Court"
 
 
-def test_remove_watch(tmp_path: Path):
+def test_remove_link(tmp_path: Path):
     state_file = tmp_path / "state.json"
     mgr = StateManager(state_file)
 
-    w1 = Watch(location_slug="a", dates=[date(2026, 3, 15)])
-    w2 = Watch(location_slug="b", dates=[date(2026, 3, 16)])
-    mgr.add_watch(w1)
-    mgr.add_watch(w2)
+    l1 = MonitoredLink(url="https://example.com/a", desired_time=time(18, 0))
+    l2 = MonitoredLink(url="https://example.com/b", desired_time=time(19, 0))
+    mgr.add_link(l1)
+    mgr.add_link(l2)
 
-    assert mgr.remove_watch(w1.id) is True
-    assert mgr.remove_watch("nonexistent") is False
+    assert mgr.remove_link(l1.id) is True
+    assert mgr.remove_link("nonexistent") is False
 
     state = mgr.load()
-    assert len(state.watches) == 1
-    assert state.watches[0].id == w2.id
+    assert len(state.links) == 1
+    assert state.links[0].id == l2.id
+
+
+def test_update_link(tmp_path: Path):
+    state_file = tmp_path / "state.json"
+    mgr = StateManager(state_file)
+
+    link = MonitoredLink(url="https://example.com", desired_time=time(18, 0), label="Old")
+    mgr.add_link(link)
+
+    assert mgr.update_link(link.id, desired_time=time(19, 0)) is True
+    assert mgr.update_link(link.id, label="New Label") is True
+    assert mgr.update_link("nonexistent", label="x") is False
+
+    state = mgr.load()
+    assert state.links[0].desired_time == time(19, 0)
+    assert state.links[0].label == "New Label"
 
 
 def test_load_empty(tmp_path: Path):
     state_file = tmp_path / "state.json"
     mgr = StateManager(state_file)
     state = mgr.load()
-    assert state.watches == []
+    assert state.links == []
     assert state.monitoring_enabled is True
-
-
-def test_cleanup_expired(tmp_path: Path):
-    state_file = tmp_path / "state.json"
-    mgr = StateManager(state_file)
-
-    past = Watch(location_slug="old", dates=[date(2020, 1, 1)])
-    future = Watch(location_slug="new", dates=[date(2030, 1, 1)])
-    mgr.add_watch(past)
-    mgr.add_watch(future)
-
-    removed = mgr.cleanup_expired()
-    assert removed == 1
-
-    state = mgr.load()
-    assert len(state.watches) == 1
-    assert state.watches[0].location_slug == "new"
