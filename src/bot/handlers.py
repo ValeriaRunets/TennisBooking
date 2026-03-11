@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import functools
 import logging
-from datetime import date
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from config.settings import AUTHORIZED_CHAT_ID
+from datetime import date, timedelta
+
 from src.bot.formatters import format_availability, format_locations, format_watch_list
 from src.models.types import Location
 from src.monitor.state import StateManager
+from src.scraper.parser import analyze_page, dump_page_html
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/locations — Show available locations\n"
         "/pause — Pause monitoring\n"
         "/resume — Resume monitoring\n"
-        "/status — Bot status",
+        "/status — Bot status\n"
+        "/calibrate — Analyze page DOM &amp; diagnose parser",
         parse_mode="HTML",
     )
 
@@ -152,3 +155,78 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"{status_emoji} Monitoring: {'active' if state.monitoring_enabled else 'paused'}\n"
         f"📋 Active watches: {active_watches}",
     )
+
+
+@authorized_only
+async def cmd_calibrate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Analyze a live booking page and report DOM structure diagnostics."""
+    locations = _locations(context)
+    if not locations:
+        await update.message.reply_text("No locations configured.")
+        return
+
+    # Use first location and tomorrow's date
+    location = next(iter(locations.values()))
+    target_date = date.today() + timedelta(days=1)
+    url = location.url_for_date(target_date)
+
+    await update.message.reply_text(
+        f"🔧 Calibrating...\n📍 {location.display_name}\n📅 {target_date}\n🔗 {url}"
+    )
+
+    browser = context.bot_data["browser"]
+    page = None
+    try:
+        page = await browser.load_page(url)
+
+        # Analyze page
+        report = await analyze_page(page)
+
+        # Dump HTML
+        filepath = await dump_page_html(page)
+
+        # Format report
+        lines = [
+            f"🔧 <b>Page analysis</b>",
+            f"📍 {location.display_name} — {target_date}",
+            "",
+            "<b>Parsing results:</b>",
+            f"  Level 1 (CSS selectors): {report['level1_count']} slots "
+            f"({report['level1_available']} available)",
+            f"  Level 1b (fallback): {report['level1b_count']} slots "
+            f"({report['level1b_available']} available)",
+            f"  Level 2 (heuristic): {report['level2_count']} slots "
+            f"({report['level2_available']} available)",
+            "",
+        ]
+
+        if report["selector_hits"]:
+            lines.append("<b>Selector hits:</b>")
+            for sel, count in report["selector_hits"].items():
+                lines.append(f"  <code>{sel}</code>: {count}")
+            lines.append("")
+
+        # Top classes
+        if report["top_classes"]:
+            lines.append("<b>Top CSS classes:</b>")
+            for cls, count in report["top_classes"][:15]:
+                lines.append(f"  .{cls} ({count})")
+            lines.append("")
+
+        lines.extend([
+            f"⏰ Time patterns: {report['time_elements']}",
+            f"💷 Price elements: {report['price_elements']}",
+            f"🔘 Buttons/links: {report['book_buttons']} "
+            f"(with 'book': {report['book_text_buttons']})",
+            "",
+            f"💾 HTML saved to <code>{filepath}</code>",
+        ])
+
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+    except Exception:
+        logger.exception("Calibration failed")
+        await update.message.reply_text("❌ Calibration failed. Check logs.")
+    finally:
+        if page:
+            await page.close()

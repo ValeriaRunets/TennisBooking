@@ -1,0 +1,15 @@
+{
+  "slot_selectors": [
+    ".activity-card", ".slot", ".time-slot", ".booking-slot",
+    "[data-activity]", ".event-card", ".timetable__item"
+  ],
+  "fallback_selectors": [
+    ".card", ".list-group-item", "tr[data-time]", ".schedule-item"
+  ],
+  "unavailable_classes": ["disabled", "unavailable", "sold-out", "full", "booked"],
+  "unavailable_text": ["sold out", "fully booked", "unavailable", "no availability"],
+  "time_pattern": "(\\d{1,2}:\\d{2})\\s*[-–]\\s*(\\d{1,2}:\\d{2})",
+  "time_pattern_single": "(\\d{1,2}:\\d{2})",
+  "court_pattern": "(Court\\s*\\d+|Pitch\\s*\\d+)",
+  "price_pattern": "£[\\d.]+"
+}

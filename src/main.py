@@ -16,6 +16,7 @@ from config.settings import (
 )
 from src.bot.conversations import build_watch_conversation
 from src.bot.handlers import (
+    cmd_calibrate,
     cmd_check,
     cmd_help,
     cmd_list,
@@ -100,6 +101,7 @@ def main() -> None:
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("calibrate", cmd_calibrate))
 
     # Setup monitoring scheduler
     setup_monitoring(app)
