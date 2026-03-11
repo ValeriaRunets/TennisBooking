@@ -55,5 +55,4 @@ def test_short_description():
 def test_app_state_defaults():
     state = AppState()
     assert state.links == []
-    assert state.notified == {}
     assert state.monitoring_enabled is True

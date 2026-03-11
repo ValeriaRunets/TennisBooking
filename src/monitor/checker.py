@@ -47,15 +47,12 @@ class AvailabilityChecker:
 
             matching = [s for s in slots if link.matches_slot(s)]
 
-            notified_keys = set(state.notified.get(link.id, []))
-            new_slots = [s for s in matching if s.key not in notified_keys]
-
-            if new_slots:
+            if matching:
                 logger.info(
-                    "Found %d new matching slots for link %s (%s)",
-                    len(new_slots), link.id, link.time_description,
+                    "Found %d matching slots for link %s (%s)",
+                    len(matching), link.id, link.time_description,
                 )
-                msg = format_slot_alert(link, new_slots)
+                msg = format_slot_alert(link, matching)
                 try:
                     await context.bot.send_message(
                         chat_id=self._chat_id,
@@ -65,8 +62,4 @@ class AvailabilityChecker:
                     )
                 except Exception:
                     logger.exception("Failed to send alert for link %s", link.id)
-
-            state.notified[link.id] = [s.key for s in matching]
-
-        self._state.save(state)
         logger.info("Check cycle complete")

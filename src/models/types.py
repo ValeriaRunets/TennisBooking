@@ -59,5 +59,4 @@ class MonitoredLink:
 @dataclass
 class AppState:
     links: list[MonitoredLink] = field(default_factory=list)
-    notified: dict[str, list[str]] = field(default_factory=dict)
     monitoring_enabled: bool = True

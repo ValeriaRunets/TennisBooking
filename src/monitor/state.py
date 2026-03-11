@@ -49,7 +49,6 @@ class StateManager:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
             return AppState(
                 links=[_link_from_dict(l) for l in raw.get("links", [])],
-                notified=raw.get("notified", {}),
                 monitoring_enabled=raw.get("monitoring_enabled", True),
             )
         except Exception:
@@ -60,7 +59,6 @@ class StateManager:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "links": [_link_to_dict(l) for l in state.links],
-            "notified": state.notified,
             "monitoring_enabled": state.monitoring_enabled,
         }
         # Atomic write
@@ -85,7 +83,6 @@ class StateManager:
         state = self.load()
         before = len(state.links)
         state.links = [l for l in state.links if l.id != link_id]
-        state.notified.pop(link_id, None)
         if len(state.links) < before:
             self.save(state)
             return True
@@ -108,8 +105,6 @@ class StateManager:
                     link.time_end = time_end
                 if label is not None:
                     link.label = label
-                # Reset notifications since params changed
-                state.notified.pop(link_id, None)
                 self.save(state)
                 return True
         return False
