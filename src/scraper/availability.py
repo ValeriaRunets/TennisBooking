@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from datetime import date
 
-from src.models.types import AvailabilitySnapshot, Location
+from src.models.types import TimeSlot
 from src.scraper.browser import BrowserManager
 from src.scraper.parser import parse_availability
 
@@ -16,52 +15,44 @@ class AvailabilityFetcher:
     def __init__(self, browser: BrowserManager) -> None:
         self._browser = browser
 
-    async def fetch(self, location: Location, target_date: date) -> AvailabilitySnapshot | None:
-        """Fetch availability for a single location + date."""
-        url = location.url_for_date(target_date)
+    async def fetch_url(self, url: str) -> list[TimeSlot]:
+        """Fetch availability for a direct URL. Returns list of parsed slots."""
         page = None
         try:
             page = await self._browser.load_page(url)
             slots = await parse_availability(page)
-            return AvailabilitySnapshot(
-                location_slug=location.slug,
-                query_date=target_date,
-                slots=slots,
-            )
+            return slots
         except Exception:
             logger.exception("Failed to fetch %s", url)
-            return None
+            return []
         finally:
             if page:
                 await page.close()
 
-    async def fetch_batch(
-        self,
-        pairs: list[tuple[Location, date]],
-        max_retries: int = 2,
-    ) -> dict[str, AvailabilitySnapshot]:
-        """Fetch availability for multiple (location, date) pairs sequentially.
-
-        Returns a dict keyed by "location_slug:date_iso".
-        """
-        results: dict[str, AvailabilitySnapshot] = {}
-
-        for location, target_date in pairs:
-            key = f"{location.slug}:{target_date.isoformat()}"
-            snapshot = None
-
-            for attempt in range(max_retries + 1):
-                snapshot = await self.fetch(location, target_date)
-                if snapshot is not None:
-                    break
+    async def fetch_url_with_retry(self, url: str, max_retries: int = 2) -> list[TimeSlot]:
+        """Fetch with retries and exponential backoff."""
+        for attempt in range(max_retries + 1):
+            slots = await self.fetch_url(url)
+            if slots:
+                return slots
+            if attempt < max_retries:
                 wait = (attempt + 1) * 5
-                logger.warning("Retry %d for %s in %ds", attempt + 1, key, wait)
+                logger.warning("Retry %d for %s in %ds", attempt + 1, url, wait)
                 await asyncio.sleep(wait)
 
-            if snapshot:
-                results[key] = snapshot
-            else:
-                logger.error("All retries failed for %s", key)
+        logger.error("All retries failed for %s", url)
+        return []
+
+    async def fetch_multiple(self, urls: list[str], max_retries: int = 2) -> dict[str, list[TimeSlot]]:
+        """Fetch availability for multiple URLs sequentially.
+
+        Returns a dict keyed by URL.
+        """
+        results: dict[str, list[TimeSlot]] = {}
+
+        for url in urls:
+            slots = await self.fetch_url_with_retry(url, max_retries)
+            results[url] = slots
 
             # Delay between requests to avoid detection
             await asyncio.sleep(random.uniform(3, 8))

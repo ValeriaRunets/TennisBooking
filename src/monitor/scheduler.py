@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 async def _monitoring_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     checker: AvailabilityChecker = context.bot_data["checker"]
     try:
-        await checker.check_all_watches(context)
+        await checker.check_all_links(context)
     except Exception:
         logger.exception("Error in monitoring cycle")
 
@@ -27,7 +27,7 @@ def setup_monitoring(application: Application) -> None:
     job_queue.run_repeating(
         callback=_monitoring_callback,
         interval=timedelta(minutes=POLL_INTERVAL_MINUTES),
-        first=timedelta(seconds=30),  # Small delay after startup
+        first=timedelta(seconds=30),
         name="availability_monitor",
     )
     logger.info("Monitoring scheduled every %d minutes", POLL_INTERVAL_MINUTES)

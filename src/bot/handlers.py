@@ -4,34 +4,52 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
+from datetime import time
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from config.settings import AUTHORIZED_CHAT_ID
-from datetime import date, timedelta
-
-from src.bot.formatters import format_availability, format_locations, format_watch_list
-from src.models.types import Location
+from src.bot.formatters import format_link_list
+from src.models.types import MonitoredLink
 from src.monitor.state import StateManager
-from src.scraper.locations import save_venue_cache, scrape_all_tennis_venues
-from src.scraper.parser import analyze_page, dump_page_html
-from src.services.geocoding import bulk_geocode
 
 logger = logging.getLogger(__name__)
 
+_TIME_RANGE_RE = re.compile(r"^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})$")
+_TIME_SINGLE_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
+
+
+def _parse_time_arg(text: str) -> tuple[time | None, time | None, str | None]:
+    """Parse a time argument. Returns (time_start, time_end, error).
+    'any' -> (None, None, None)
+    'HH:MM-HH:MM' -> (start, end, None)
+    """
+    text = text.strip().lower()
+    if text == "any":
+        return None, None, None
+
+    m = _TIME_RANGE_RE.match(text)
+    if m:
+        try:
+            t_start = time.fromisoformat(m.group(1))
+            t_end = time.fromisoformat(m.group(2))
+            return t_start, t_end, None
+        except ValueError:
+            return None, None, "Invalid time values."
+
+    return None, None, "Use format <code>HH:MM-HH:MM</code> or <code>any</code>."
+
 
 def authorized_only(func):
-    """Restrict handler to the authorized user."""
-
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
         if AUTHORIZED_CHAT_ID and chat_id != AUTHORIZED_CHAT_ID:
-            await update.message.reply_text("⛔ Unauthorized.")
+            await update.message.reply_text("Unauthorized.")
             return
         return await func(update, context)
-
     return wrapper
 
 
@@ -39,25 +57,20 @@ def _state(context: ContextTypes.DEFAULT_TYPE) -> StateManager:
     return context.bot_data["state"]
 
 
-def _locations(context: ContextTypes.DEFAULT_TYPE) -> dict[str, Location]:
-    return context.bot_data["locations"]
-
-
 @authorized_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🎾 <b>Tennis Court Monitor</b>\n\n"
-        "I'll watch for available courts on better.org.uk and notify you.\n\n"
+        "<b>Tennis Court Monitor</b>\n\n"
+        "I monitor booking pages and notify you when your desired time is free.\n\n"
         "<b>Commands:</b>\n"
-        "/watch — Add a new court watch\n"
-        "/unwatch &lt;id&gt; — Remove a watch\n"
-        "/list — Show active watches\n"
-        "/check &lt;location&gt; &lt;date&gt; — Check availability now\n"
-        "/locations — Show available locations\n"
+        "/add &lt;url&gt; &lt;HH:MM-HH:MM|any&gt; [label]\n"
+        "/remove &lt;id&gt; — Remove a link\n"
+        "/list — Show monitored links\n"
+        "/edit &lt;id&gt; &lt;time|url|label&gt; &lt;value&gt;\n"
+        "/check &lt;id&gt; — Check a link now\n"
         "/pause — Pause monitoring\n"
         "/resume — Resume monitoring\n"
-        "/status — Bot status\n"
-        "/calibrate — Analyze page DOM &amp; diagnose parser",
+        "/status — Bot status",
         parse_mode="HTML",
     )
 
@@ -68,66 +81,154 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @authorized_only
-async def cmd_locations(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    locations = _locations(context)
-    await update.message.reply_text(format_locations(locations), parse_mode="HTML")
+async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a new link: /add <url> <HH:MM-HH:MM|any> [label]"""
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage: /add <code>URL</code> <code>HH:MM-HH:MM</code> or <code>any</code> [label]\n\n"
+            "Examples:\n"
+            "<code>/add https://bookings.better.org.uk/... 18:00-21:00 Islington Tue</code>\n"
+            "<code>/add https://bookings.better.org.uk/... any Saturday</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    url = context.args[0]
+    time_arg = context.args[1]
+
+    if not url.startswith("http"):
+        await update.message.reply_text("URL must start with http:// or https://")
+        return
+
+    t_start, t_end, err = _parse_time_arg(time_arg)
+    if err:
+        await update.message.reply_text(err, parse_mode="HTML")
+        return
+
+    label = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+
+    link = MonitoredLink(url=url, time_start=t_start, time_end=t_end, label=label)
+    _state(context).add_link(link)
+
+    await update.message.reply_text(
+        f"Added!\n\n"
+        f"URL: {url}\n"
+        f"Time: <b>{link.time_description}</b>\n"
+        f"Label: {label or '(none)'}\n"
+        f"ID: <code>{link.id}</code>",
+        parse_mode="HTML",
+    )
+
+
+@authorized_only
+async def cmd_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await update.message.reply_text("Usage: /remove <code>id</code>", parse_mode="HTML")
+        return
+    link_id = context.args[0]
+    removed = _state(context).remove_link(link_id)
+    if removed:
+        await update.message.reply_text(f"Removed <code>{link_id}</code>.", parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"Link <code>{link_id}</code> not found.", parse_mode="HTML")
 
 
 @authorized_only
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     state = _state(context).load()
-    active = [w for w in state.watches if w.active]
-    locations = _locations(context)
-    await update.message.reply_text(format_watch_list(active, locations), parse_mode="HTML")
+    await update.message.reply_text(format_link_list(state.links), parse_mode="HTML")
 
 
 @authorized_only
-async def cmd_unwatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args:
-        await update.message.reply_text("Usage: /unwatch <code>watch_id</code>", parse_mode="HTML")
-        return
-    watch_id = context.args[0]
-    removed = _state(context).remove_watch(watch_id)
-    if removed:
-        await update.message.reply_text(f"✅ Watch <code>{watch_id}</code> removed.", parse_mode="HTML")
-    else:
-        await update.message.reply_text(f"Watch <code>{watch_id}</code> not found.", parse_mode="HTML")
-
-
-@authorized_only
-async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """On-demand availability check: /check <location_slug> <date>"""
-    if not context.args or len(context.args) < 2:
+async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Edit a link: /edit <id> <field> <value>
+    Fields: time, url, label
+    """
+    if not context.args or len(context.args) < 3:
         await update.message.reply_text(
-            "Usage: /check <code>location_slug</code> <code>YYYY-MM-DD</code>\n"
-            "Use /locations to see available slugs.",
+            "Usage: /edit <code>id</code> <code>time|url|label</code> <code>value</code>\n\n"
+            "Examples:\n"
+            "<code>/edit abc123 time 19:00-21:00</code>\n"
+            "<code>/edit abc123 time any</code>\n"
+            "<code>/edit abc123 label Tuesday evening</code>",
             parse_mode="HTML",
         )
         return
 
-    slug = context.args[0]
-    locations = _locations(context)
-    if slug not in locations:
-        await update.message.reply_text(f"Unknown location: <code>{slug}</code>", parse_mode="HTML")
+    link_id = context.args[0]
+    field_name = context.args[1].lower()
+    value = " ".join(context.args[2:])
+
+    state_mgr = _state(context)
+
+    if field_name == "time":
+        t_start, t_end, err = _parse_time_arg(value)
+        if err:
+            await update.message.reply_text(err, parse_mode="HTML")
+            return
+        ok = state_mgr.update_link(link_id, time_start=t_start, time_end=t_end)
+    elif field_name == "url":
+        if not value.startswith("http"):
+            await update.message.reply_text("URL must start with http:// or https://")
+            return
+        ok = state_mgr.update_link(link_id, url=value)
+    elif field_name == "label":
+        ok = state_mgr.update_link(link_id, label=value)
+    else:
+        await update.message.reply_text("Unknown field. Use: time, url, or label.")
         return
 
-    try:
-        target_date = date.fromisoformat(context.args[1])
-    except ValueError:
-        await update.message.reply_text("Invalid date format. Use YYYY-MM-DD.")
+    if ok:
+        await update.message.reply_text(f"Updated <code>{link_id}</code>: {field_name} = {value}", parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"Link <code>{link_id}</code> not found.", parse_mode="HTML")
+
+
+@authorized_only
+async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """On-demand check for a specific link: /check <id>"""
+    if not context.args:
+        await update.message.reply_text("Usage: /check <code>id</code>", parse_mode="HTML")
         return
 
-    location = locations[slug]
-    await update.message.reply_text(f"⏳ Checking {location.display_name} for {target_date}...")
+    link_id = context.args[0]
+    state = _state(context).load()
+    link = next((l for l in state.links if l.id == link_id), None)
+
+    if not link:
+        await update.message.reply_text(f"Link <code>{link_id}</code> not found.", parse_mode="HTML")
+        return
+
+    await update.message.reply_text(f"Checking {link.label or link.url}...")
 
     fetcher = context.bot_data["fetcher"]
-    snapshot = await fetcher.fetch(location, target_date)
+    slots = await fetcher.fetch_url(link.url)
 
-    if snapshot is None:
-        await update.message.reply_text("❌ Failed to fetch availability. Check logs.")
+    if not slots:
+        await update.message.reply_text("No slots found on the page. The page structure may have changed.")
         return
 
-    await update.message.reply_text(format_availability(snapshot, location), parse_mode="HTML")
+    matching = [s for s in slots if link.matches_slot(s)]
+
+    lines = [f"<b>Results ({link.time_description}):</b>\n"]
+
+    if matching:
+        for s in matching:
+            price_str = f" ({s.price})" if s.price else ""
+            lines.append(
+                f"  ✅ {s.start_time.strftime('%H:%M')}-{s.end_time.strftime('%H:%M')} "
+                f"{s.court_name}{price_str}"
+            )
+        lines.append(f"\n<a href=\"{link.url}\">Book now →</a>")
+    else:
+        lines.append(f"  ❌ No available slots for {link.time_description}.")
+        available = [s for s in slots if s.is_available]
+        if available:
+            lines.append(f"\nOther available times ({len(available)}):")
+            for s in available[:10]:
+                lines.append(f"  • {s.start_time.strftime('%H:%M')}-{s.end_time.strftime('%H:%M')} {s.court_name}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @authorized_only
@@ -136,7 +237,7 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     state = state_mgr.load()
     state.monitoring_enabled = False
     state_mgr.save(state)
-    await update.message.reply_text("⏸ Monitoring paused. Use /resume to restart.")
+    await update.message.reply_text("Monitoring paused. Use /resume to restart.")
 
 
 @authorized_only
@@ -145,131 +246,15 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     state = state_mgr.load()
     state.monitoring_enabled = True
     state_mgr.save(state)
-    await update.message.reply_text("▶️ Monitoring resumed.")
+    await update.message.reply_text("Monitoring resumed.")
 
 
 @authorized_only
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     state = _state(context).load()
-    active_watches = sum(1 for w in state.watches if w.active)
-    status_emoji = "▶️" if state.monitoring_enabled else "⏸"
+    active_links = sum(1 for l in state.links if l.active)
+    status = "active" if state.monitoring_enabled else "paused"
     await update.message.reply_text(
-        f"{status_emoji} Monitoring: {'active' if state.monitoring_enabled else 'paused'}\n"
-        f"📋 Active watches: {active_watches}",
+        f"Monitoring: {status}\n"
+        f"Active links: {active_links}",
     )
-
-
-@authorized_only
-async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Re-scrape all Better venues with tennis and update the cache."""
-    await update.message.reply_text("Scraping Better venues for tennis... this may take a while.")
-
-    browser = context.bot_data["browser"]
-    venues = await scrape_all_tennis_venues(browser)
-
-    if not venues:
-        await update.message.reply_text("No tennis venues found. Check logs for errors.")
-        return
-
-    # Geocode venue postcodes
-    postcodes = [v["postcode"] for v in venues if v.get("postcode")]
-    coords = await bulk_geocode(postcodes)
-
-    for v in venues:
-        pc = v.get("postcode")
-        if pc and pc in coords:
-            v["lat"], v["lon"] = coords[pc]
-
-    save_venue_cache(venues)
-
-    # Update bot_data locations
-    locations = _locations(context)
-    for v in venues:
-        locations[v["slug"]] = Location(
-            slug=v["slug"],
-            display_name=v["display_name"],
-            activity_slug=v["activity_slug"],
-            postcode=v.get("postcode"),
-            lat=v.get("lat"),
-            lon=v.get("lon"),
-        )
-
-    geocoded = sum(1 for v in venues if v.get("lat") is not None)
-    await update.message.reply_text(
-        f"Found {len(venues)} tennis venues ({geocoded} geocoded). Cache updated."
-    )
-
-
-@authorized_only
-async def cmd_calibrate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Analyze a live booking page and report DOM structure diagnostics."""
-    locations = _locations(context)
-    if not locations:
-        await update.message.reply_text("No locations configured.")
-        return
-
-    # Use first location and tomorrow's date
-    location = next(iter(locations.values()))
-    target_date = date.today() + timedelta(days=1)
-    url = location.url_for_date(target_date)
-
-    await update.message.reply_text(
-        f"🔧 Calibrating...\n📍 {location.display_name}\n📅 {target_date}\n🔗 {url}"
-    )
-
-    browser = context.bot_data["browser"]
-    page = None
-    try:
-        page = await browser.load_page(url)
-
-        # Analyze page
-        report = await analyze_page(page)
-
-        # Dump HTML
-        filepath = await dump_page_html(page)
-
-        # Format report
-        lines = [
-            f"🔧 <b>Page analysis</b>",
-            f"📍 {location.display_name} — {target_date}",
-            "",
-            "<b>Parsing results:</b>",
-            f"  Level 1 (CSS selectors): {report['level1_count']} slots "
-            f"({report['level1_available']} available)",
-            f"  Level 1b (fallback): {report['level1b_count']} slots "
-            f"({report['level1b_available']} available)",
-            f"  Level 2 (heuristic): {report['level2_count']} slots "
-            f"({report['level2_available']} available)",
-            "",
-        ]
-
-        if report["selector_hits"]:
-            lines.append("<b>Selector hits:</b>")
-            for sel, count in report["selector_hits"].items():
-                lines.append(f"  <code>{sel}</code>: {count}")
-            lines.append("")
-
-        # Top classes
-        if report["top_classes"]:
-            lines.append("<b>Top CSS classes:</b>")
-            for cls, count in report["top_classes"][:15]:
-                lines.append(f"  .{cls} ({count})")
-            lines.append("")
-
-        lines.extend([
-            f"⏰ Time patterns: {report['time_elements']}",
-            f"💷 Price elements: {report['price_elements']}",
-            f"🔘 Buttons/links: {report['book_buttons']} "
-            f"(with 'book': {report['book_text_buttons']})",
-            "",
-            f"💾 HTML saved to <code>{filepath}</code>",
-        ])
-
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-
-    except Exception:
-        logger.exception("Calibration failed")
-        await update.message.reply_text("❌ Calibration failed. Check logs.")
-    finally:
-        if page:
-            await page.close()
