@@ -149,21 +149,27 @@ async def _try_css_selectors(page: Page, selector_list: list[str], cfg: dict) ->
 _HEURISTIC_JS = """
 () => {
     const timeRe = /\\d{1,2}:\\d{2}/;
+    const priceRe = /£/;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const containers = new Set();
     while (walker.nextNode()) {
         const txt = walker.currentNode.textContent.trim();
         if (txt && timeRe.test(txt)) {
             let el = walker.currentNode.parentElement;
+            let candidate = null;
             while (el && el !== document.body) {
                 const tag = el.tagName.toLowerCase();
                 if (['li', 'tr', 'article', 'section'].includes(tag) ||
                     (tag === 'div' && el.children.length > 1)) {
-                    containers.add(el);
-                    break;
+                    candidate = el;
+                    // Keep walking up until we find a container with price info
+                    if (priceRe.test(el.textContent)) {
+                        break;
+                    }
                 }
                 el = el.parentElement;
             }
+            if (candidate) containers.add(candidate);
         }
     }
     // Tag each container with a data attribute for later querySelector
