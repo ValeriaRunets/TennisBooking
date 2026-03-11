@@ -17,10 +17,32 @@ from src.monitor.state import StateManager
 
 logger = logging.getLogger(__name__)
 
+_TIME_RANGE_RE = re.compile(r"^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})$")
+_TIME_SINGLE_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
+
+
+def _parse_time_arg(text: str) -> tuple[time | None, time | None, str | None]:
+    """Parse a time argument. Returns (time_start, time_end, error).
+    'any' -> (None, None, None)
+    'HH:MM-HH:MM' -> (start, end, None)
+    """
+    text = text.strip().lower()
+    if text == "any":
+        return None, None, None
+
+    m = _TIME_RANGE_RE.match(text)
+    if m:
+        try:
+            t_start = time.fromisoformat(m.group(1))
+            t_end = time.fromisoformat(m.group(2))
+            return t_start, t_end, None
+        except ValueError:
+            return None, None, "Invalid time values."
+
+    return None, None, "Use format <code>HH:MM-HH:MM</code> or <code>any</code>."
+
 
 def authorized_only(func):
-    """Restrict handler to the authorized user."""
-
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
@@ -28,7 +50,6 @@ def authorized_only(func):
             await update.message.reply_text("Unauthorized.")
             return
         return await func(update, context)
-
     return wrapper
 
 
@@ -42,11 +63,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "<b>Tennis Court Monitor</b>\n\n"
         "I monitor booking pages and notify you when your desired time is free.\n\n"
         "<b>Commands:</b>\n"
-        "/add &lt;url&gt; &lt;HH:MM&gt; [label] — Add a link to monitor\n"
+        "/add &lt;url&gt; &lt;HH:MM-HH:MM|any&gt; [label]\n"
         "/remove &lt;id&gt; — Remove a link\n"
         "/list — Show monitored links\n"
-        "/edit &lt;id&gt; &lt;time|url|label&gt; &lt;value&gt; — Edit a link\n"
-        "/check &lt;id&gt; — Check a link right now\n"
+        "/edit &lt;id&gt; &lt;time|url|label&gt; &lt;value&gt;\n"
+        "/check &lt;id&gt; — Check a link now\n"
         "/pause — Pause monitoring\n"
         "/resume — Resume monitoring\n"
         "/status — Bot status",
@@ -61,47 +82,38 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @authorized_only
 async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add a new link: /add <url> <HH:MM> [label]"""
+    """Add a new link: /add <url> <HH:MM-HH:MM|any> [label]"""
     if not context.args or len(context.args) < 2:
         await update.message.reply_text(
-            "Usage: /add <code>URL</code> <code>HH:MM</code> [label]\n\n"
-            "Example:\n"
-            "<code>/add https://bookings.better.org.uk/location/... 18:00 Islington Tuesday</code>",
+            "Usage: /add <code>URL</code> <code>HH:MM-HH:MM</code> or <code>any</code> [label]\n\n"
+            "Examples:\n"
+            "<code>/add https://bookings.better.org.uk/... 18:00-21:00 Islington Tue</code>\n"
+            "<code>/add https://bookings.better.org.uk/... any Saturday</code>",
             parse_mode="HTML",
         )
         return
 
     url = context.args[0]
-    time_str = context.args[1]
+    time_arg = context.args[1]
 
-    # Validate URL
     if not url.startswith("http"):
         await update.message.reply_text("URL must start with http:// or https://")
         return
 
-    # Parse time
-    m = re.match(r"^(\d{1,2}):(\d{2})$", time_str)
-    if not m:
-        await update.message.reply_text("Time must be in HH:MM format (e.g. 18:00)")
+    t_start, t_end, err = _parse_time_arg(time_arg)
+    if err:
+        await update.message.reply_text(err, parse_mode="HTML")
         return
 
-    h, mins = int(m.group(1)), int(m.group(2))
-    if not (0 <= h <= 23 and 0 <= mins <= 59):
-        await update.message.reply_text("Invalid time value.")
-        return
-
-    desired_time = time(h, mins)
-
-    # Optional label from remaining args
     label = " ".join(context.args[2:]) if len(context.args) > 2 else ""
 
-    link = MonitoredLink(url=url, desired_time=desired_time, label=label)
+    link = MonitoredLink(url=url, time_start=t_start, time_end=t_end, label=label)
     _state(context).add_link(link)
 
     await update.message.reply_text(
         f"Added!\n\n"
         f"URL: {url}\n"
-        f"Time: <b>{desired_time.strftime('%H:%M')}</b>\n"
+        f"Time: <b>{link.time_description}</b>\n"
         f"Label: {label or '(none)'}\n"
         f"ID: <code>{link.id}</code>",
         parse_mode="HTML",
@@ -136,38 +148,38 @@ async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "Usage: /edit <code>id</code> <code>time|url|label</code> <code>value</code>\n\n"
             "Examples:\n"
-            "<code>/edit abc123 time 19:00</code>\n"
+            "<code>/edit abc123 time 19:00-21:00</code>\n"
+            "<code>/edit abc123 time any</code>\n"
             "<code>/edit abc123 label Tuesday evening</code>",
             parse_mode="HTML",
         )
         return
 
     link_id = context.args[0]
-    field = context.args[1].lower()
+    field_name = context.args[1].lower()
     value = " ".join(context.args[2:])
 
     state_mgr = _state(context)
 
-    if field == "time":
-        m = re.match(r"^(\d{1,2}):(\d{2})$", value)
-        if not m:
-            await update.message.reply_text("Time must be in HH:MM format.")
+    if field_name == "time":
+        t_start, t_end, err = _parse_time_arg(value)
+        if err:
+            await update.message.reply_text(err, parse_mode="HTML")
             return
-        new_time = time(int(m.group(1)), int(m.group(2)))
-        ok = state_mgr.update_link(link_id, desired_time=new_time)
-    elif field == "url":
+        ok = state_mgr.update_link(link_id, time_start=t_start, time_end=t_end)
+    elif field_name == "url":
         if not value.startswith("http"):
             await update.message.reply_text("URL must start with http:// or https://")
             return
         ok = state_mgr.update_link(link_id, url=value)
-    elif field == "label":
+    elif field_name == "label":
         ok = state_mgr.update_link(link_id, label=value)
     else:
         await update.message.reply_text("Unknown field. Use: time, url, or label.")
         return
 
     if ok:
-        await update.message.reply_text(f"Updated <code>{link_id}</code>: {field} = {value}", parse_mode="HTML")
+        await update.message.reply_text(f"Updated <code>{link_id}</code>: {field_name} = {value}", parse_mode="HTML")
     else:
         await update.message.reply_text(f"Link <code>{link_id}</code> not found.", parse_mode="HTML")
 
@@ -196,10 +208,9 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("No slots found on the page. The page structure may have changed.")
         return
 
-    available = [s for s in slots if s.is_available]
-    matching = [s for s in available if s.start_time == link.desired_time]
+    matching = [s for s in slots if link.matches_slot(s)]
 
-    lines = [f"<b>Results for {link.desired_time.strftime('%H:%M')}:</b>\n"]
+    lines = [f"<b>Results ({link.time_description}):</b>\n"]
 
     if matching:
         for s in matching:
@@ -210,7 +221,8 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         lines.append(f"\n<a href=\"{link.url}\">Book now →</a>")
     else:
-        lines.append(f"  ❌ Time {link.desired_time.strftime('%H:%M')} is not available.")
+        lines.append(f"  ❌ No available slots for {link.time_description}.")
+        available = [s for s in slots if s.is_available]
         if available:
             lines.append(f"\nOther available times ({len(available)}):")
             for s in available[:10]:

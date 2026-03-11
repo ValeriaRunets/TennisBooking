@@ -7,18 +7,10 @@ import logging
 from telegram.ext import ContextTypes
 
 from src.bot.formatters import format_slot_alert
-from src.models.types import MonitoredLink, TimeSlot
 from src.monitor.state import StateManager
 from src.scraper.availability import AvailabilityFetcher
 
 logger = logging.getLogger(__name__)
-
-
-def _slot_matches_time(slot: TimeSlot, link: MonitoredLink) -> bool:
-    """Check if a slot matches the desired time for a link."""
-    if not slot.is_available:
-        return False
-    return slot.start_time == link.desired_time
 
 
 class AvailabilityChecker:
@@ -45,28 +37,23 @@ class AvailabilityChecker:
 
         logger.info("Checking %d active links", len(active_links))
 
-        # Collect unique URLs (multiple links might point to the same page)
         unique_urls = list({l.url for l in active_links})
-
-        # Fetch all pages
         all_slots = await self._fetcher.fetch_multiple(unique_urls)
 
-        # Check each link
         for link in active_links:
             slots = all_slots.get(link.url, [])
             if not slots:
                 continue
 
-            matching = [s for s in slots if _slot_matches_time(s, link)]
+            matching = [s for s in slots if link.matches_slot(s)]
 
-            # Check against already notified
             notified_keys = set(state.notified.get(link.id, []))
             new_slots = [s for s in matching if s.key not in notified_keys]
 
             if new_slots:
                 logger.info(
                     "Found %d new matching slots for link %s (%s)",
-                    len(new_slots), link.id, link.desired_time.strftime("%H:%M"),
+                    len(new_slots), link.id, link.time_description,
                 )
                 msg = format_slot_alert(link, new_slots)
                 try:
@@ -79,7 +66,6 @@ class AvailabilityChecker:
                 except Exception:
                     logger.exception("Failed to send alert for link %s", link.id)
 
-            # Update notified with ALL currently matching slots
             state.notified[link.id] = [s.key for s in matching]
 
         self._state.save(state)

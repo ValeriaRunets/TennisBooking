@@ -18,7 +18,8 @@ def _link_to_dict(link: MonitoredLink) -> dict:
     return {
         "id": link.id,
         "url": link.url,
-        "desired_time": link.desired_time.strftime("%H:%M"),
+        "time_start": link.time_start.strftime("%H:%M") if link.time_start else None,
+        "time_end": link.time_end.strftime("%H:%M") if link.time_end else None,
         "label": link.label,
         "active": link.active,
         "created_at": link.created_at,
@@ -29,7 +30,8 @@ def _link_from_dict(d: dict) -> MonitoredLink:
     return MonitoredLink(
         id=d["id"],
         url=d["url"],
-        desired_time=time.fromisoformat(d["desired_time"]),
+        time_start=time.fromisoformat(d["time_start"]) if d.get("time_start") else None,
+        time_end=time.fromisoformat(d["time_end"]) if d.get("time_end") else None,
         label=d.get("label", ""),
         active=d.get("active", True),
         created_at=d.get("created_at", ""),
@@ -83,7 +85,6 @@ class StateManager:
         state = self.load()
         before = len(state.links)
         state.links = [l for l in state.links if l.id != link_id]
-        # Also clean up notified entries
         state.notified.pop(link_id, None)
         if len(state.links) < before:
             self.save(state)
@@ -91,18 +92,23 @@ class StateManager:
         return False
 
     def update_link(self, link_id: str, url: str | None = None,
-                    desired_time: time | None = None,
+                    time_start: time | None = ...,
+                    time_end: time | None = ...,
                     label: str | None = None) -> bool:
+        """Update link fields. Use None to clear time_start/time_end.
+        Use ... (default) to leave unchanged."""
         state = self.load()
         for link in state.links:
             if link.id == link_id:
                 if url is not None:
                     link.url = url
-                if desired_time is not None:
-                    link.desired_time = desired_time
+                if time_start is not ...:
+                    link.time_start = time_start
+                if time_end is not ...:
+                    link.time_end = time_end
                 if label is not None:
                     link.label = label
-                # Reset notifications for this link since params changed
+                # Reset notifications since params changed
                 state.notified.pop(link_id, None)
                 self.save(state)
                 return True

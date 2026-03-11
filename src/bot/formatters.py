@@ -12,7 +12,7 @@ def format_link(link: MonitoredLink, index: int = 0) -> str:
     status = "active" if link.active else "paused"
     return (
         f"{index}. {name}\n"
-        f"   Time: <b>{link.desired_time.strftime('%H:%M')}</b> | Status: {status}\n"
+        f"   Time: <b>{link.time_description}</b> | Status: {status}\n"
         f"   ID: <code>{link.id}</code>"
     )
 
@@ -30,7 +30,7 @@ def format_link_list(links: list[MonitoredLink]) -> str:
 def format_slot_alert(link: MonitoredLink, matching_slots: list[TimeSlot]) -> str:
     name = link.label or "Link"
     lines = [
-        f"🔔 <b>Time {link.desired_time.strftime('%H:%M')} is FREE!</b>\n"
+        f"🔔 <b>Courts available! ({link.time_description})</b>\n"
         f"📍 {name}\n"
     ]
     for slot in matching_slots:
