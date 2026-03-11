@@ -11,6 +11,9 @@ class Location:
     slug: str  # e.g. "islington-tennis-centre"
     display_name: str  # e.g. "Islington Tennis Centre"
     activity_slug: str  # e.g. "highbury-tennis"
+    postcode: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
     def url_for_date(self, d: date) -> str:
         return (

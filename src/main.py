@@ -22,6 +22,7 @@ from src.bot.handlers import (
     cmd_list,
     cmd_locations,
     cmd_pause,
+    cmd_refresh,
     cmd_resume,
     cmd_start,
     cmd_status,
@@ -33,9 +34,26 @@ from src.monitor.scheduler import setup_monitoring
 from src.monitor.state import StateManager
 from src.scraper.availability import AvailabilityFetcher
 from src.scraper.browser import BrowserManager
+from src.scraper.locations import load_venue_cache
 
 
 def _load_locations() -> dict[str, Location]:
+    """Load locations from venue cache, falling back to static config."""
+    cached = load_venue_cache()
+    if cached:
+        return {
+            item["slug"]: Location(
+                slug=item["slug"],
+                display_name=item["display_name"],
+                activity_slug=item["activity_slug"],
+                postcode=item.get("postcode"),
+                lat=item.get("lat"),
+                lon=item.get("lon"),
+            )
+            for item in cached
+        }
+
+    # Fallback to static locations.json
     raw = json.loads(LOCATIONS_FILE.read_text(encoding="utf-8"))
     return {
         item["slug"]: Location(
@@ -102,6 +120,7 @@ def main() -> None:
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("calibrate", cmd_calibrate))
+    app.add_handler(CommandHandler("refresh", cmd_refresh))
 
     # Setup monitoring scheduler
     setup_monitoring(app)

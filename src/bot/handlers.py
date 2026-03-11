@@ -14,7 +14,9 @@ from datetime import date, timedelta
 from src.bot.formatters import format_availability, format_locations, format_watch_list
 from src.models.types import Location
 from src.monitor.state import StateManager
+from src.scraper.locations import save_venue_cache, scrape_all_tennis_venues
 from src.scraper.parser import analyze_page, dump_page_html
+from src.services.geocoding import bulk_geocode
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,47 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(
         f"{status_emoji} Monitoring: {'active' if state.monitoring_enabled else 'paused'}\n"
         f"📋 Active watches: {active_watches}",
+    )
+
+
+@authorized_only
+async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Re-scrape all Better venues with tennis and update the cache."""
+    await update.message.reply_text("Scraping Better venues for tennis... this may take a while.")
+
+    browser = context.bot_data["browser"]
+    venues = await scrape_all_tennis_venues(browser)
+
+    if not venues:
+        await update.message.reply_text("No tennis venues found. Check logs for errors.")
+        return
+
+    # Geocode venue postcodes
+    postcodes = [v["postcode"] for v in venues if v.get("postcode")]
+    coords = await bulk_geocode(postcodes)
+
+    for v in venues:
+        pc = v.get("postcode")
+        if pc and pc in coords:
+            v["lat"], v["lon"] = coords[pc]
+
+    save_venue_cache(venues)
+
+    # Update bot_data locations
+    locations = _locations(context)
+    for v in venues:
+        locations[v["slug"]] = Location(
+            slug=v["slug"],
+            display_name=v["display_name"],
+            activity_slug=v["activity_slug"],
+            postcode=v.get("postcode"),
+            lat=v.get("lat"),
+            lon=v.get("lon"),
+        )
+
+    geocoded = sum(1 for v in venues if v.get("lat") is not None)
+    await update.message.reply_text(
+        f"Found {len(venues)} tennis venues ({geocoded} geocoded). Cache updated."
     )
 
 
