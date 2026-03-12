@@ -96,24 +96,42 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
 
     # Determine availability
     classes = (await el.get_attribute("class")) or ""
+    text_lower = text.lower()
     is_available = True
+    explicitly_unavailable = False
 
     unavail_classes = cfg.get("unavailable_classes", [])
     if any(kw in classes.lower() for kw in unavail_classes):
         is_available = False
+        explicitly_unavailable = True
 
     unavail_text = cfg.get("unavailable_text", [])
-    if any(kw in text.lower() for kw in unavail_text):
+    if any(kw in text_lower for kw in unavail_text):
         is_available = False
+        explicitly_unavailable = True
 
-    # Check for book button as positive signal
+    # Check for FullyBooked component (Better.org.uk specific)
+    fully_booked_el = await el.query_selector("[class*='FullyBooked']")
+    if fully_booked_el:
+        is_available = False
+        explicitly_unavailable = True
+
+    # "X spaces available" is a strong positive signal
+    if "space available" in text_lower or "spaces available" in text_lower:
+        is_available = True
+        explicitly_unavailable = False
+
+    # Check book button — but never override explicit unavailability
     book_btn = await el.query_selector("a, button")
     if book_btn:
         btn_text = (await book_btn.inner_text()).strip().lower()
-        if "book" in btn_text:
-            is_available = True
+        btn_disabled = await book_btn.get_attribute("disabled")
+        if btn_disabled is not None:
+            is_available = False
         elif "sold" in btn_text or "full" in btn_text:
             is_available = False
+        elif "book" in btn_text and not explicitly_unavailable:
+            is_available = True
 
     # Extract price
     price_pattern = cfg.get("price_pattern", r"£[\d.]+")
@@ -150,6 +168,7 @@ _HEURISTIC_JS = """
 () => {
     const timeRe = /\\d{1,2}:\\d{2}/;
     const priceRe = /£/;
+    const bookRe = /book/i;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const containers = new Set();
     while (walker.nextNode()) {
@@ -157,17 +176,22 @@ _HEURISTIC_JS = """
         if (txt && timeRe.test(txt)) {
             let el = walker.currentNode.parentElement;
             let candidate = null;
-            while (el && el !== document.body) {
+            let depth = 0;
+            while (el && el !== document.body && depth < 15) {
                 const tag = el.tagName.toLowerCase();
-                if (['li', 'tr', 'article', 'section'].includes(tag) ||
-                    (tag === 'div' && el.children.length > 1)) {
+                // Accept any semantic container, or divs/spans with content
+                if (['li', 'tr', 'article', 'section', 'a'].includes(tag) ||
+                    (tag === 'div' && el.children.length >= 1) ||
+                    (tag === 'div' && el.textContent.length > 20)) {
                     candidate = el;
-                    // Keep walking up until we find a container with price info
-                    if (priceRe.test(el.textContent)) {
+                    // Stop at a container with price or booking info
+                    const content = el.textContent;
+                    if (priceRe.test(content) || bookRe.test(content)) {
                         break;
                     }
                 }
                 el = el.parentElement;
+                depth++;
             }
             if (candidate) containers.add(candidate);
         }
@@ -243,9 +267,13 @@ async def parse_availability(page: Page) -> list[TimeSlot]:
         return slots
 
     # Level 3: nothing found — dump page for debugging
+    html = await page.content()
+    time_count = len(re.findall(r"\d{1,2}:\d{2}", html))
     logger.warning(
-        "No slots found by any method. The page structure may have changed. "
-        "Dumping HTML for inspection. Use /calibrate to diagnose."
+        "No slots found by any method. Page has %d time patterns in raw HTML. "
+        "The page structure may have changed. "
+        "Dumping HTML for inspection. Use /calibrate to diagnose.",
+        time_count,
     )
     await dump_page_html(page)
     return []

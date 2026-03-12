@@ -1,14 +1,14 @@
 {
   "slot_selectors": [
-    "[class*='ClassCardComponent__Wrap']",
     "[class*='ByTimeListComponent__Wrap']"
   ],
   "fallback_selectors": [
+    "[class*='ClassCardComponent__Wrap']",
     "[class*='ClassCardComponent__Row']",
     ".activity-card", ".slot", ".time-slot", ".booking-slot",
     "[data-activity]", ".event-card", ".timetable__item"
   ],
-  "unavailable_classes": ["disabled", "unavailable", "sold-out", "full", "booked"],
+  "unavailable_classes": ["disabled", "unavailable", "sold-out", "full", "booked", "fullybooked"],
   "unavailable_text": ["sold out", "fully booked", "unavailable", "no availability"],
   "time_pattern": "(\\d{1,2}:\\d{2})\\s*[-–]\\s*(\\d{1,2}:\\d{2})",
   "time_pattern_single": "(\\d{1,2}:\\d{2})",

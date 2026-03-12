@@ -21,6 +21,14 @@ class AvailabilityFetcher:
         try:
             page = await self._browser.load_page(url)
             slots = await parse_availability(page)
+
+            # If no slots found, wait a bit more and retry parsing once.
+            # Some SPAs render content with a delay after networkidle.
+            if not slots:
+                logger.info("No slots on first parse, waiting 5s and retrying...")
+                await page.wait_for_timeout(5000)
+                slots = await parse_availability(page)
+
             return slots
         except Exception:
             logger.exception("Failed to fetch %s", url)

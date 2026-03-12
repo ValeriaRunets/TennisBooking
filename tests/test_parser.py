@@ -21,17 +21,39 @@ from src.scraper.parser import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _mock_element(text: str, classes: str = "", btn_text: str | None = None) -> AsyncMock:
+def _mock_element(
+    text: str,
+    classes: str = "",
+    btn_text: str | None = None,
+    btn_disabled: bool = False,
+    has_fully_booked_el: bool = False,
+) -> AsyncMock:
     """Create a mock Playwright ElementHandle."""
     el = AsyncMock()
     el.inner_text = AsyncMock(return_value=text)
     el.get_attribute = AsyncMock(return_value=classes)
+
+    # Build button mock
+    btn = None
     if btn_text is not None:
         btn = AsyncMock()
         btn.inner_text = AsyncMock(return_value=btn_text)
-        el.query_selector = AsyncMock(return_value=btn)
-    else:
-        el.query_selector = AsyncMock(return_value=None)
+        btn.get_attribute = AsyncMock(
+            return_value="" if btn_disabled else None
+        )
+
+    # Build FullyBooked element mock
+    fully_booked_mock = AsyncMock() if has_fully_booked_el else None
+
+    # query_selector is called twice: first for "[class*='FullyBooked']", then for "a, button"
+    async def _query_selector(selector):
+        if "FullyBooked" in selector:
+            return fully_booked_mock
+        if selector == "a, button":
+            return btn
+        return None
+
+    el.query_selector = _query_selector
     return el
 
 
@@ -140,6 +162,50 @@ async def test_extract_slot_unavailable_text():
 async def test_extract_slot_sold_out_button():
     cfg = load_selectors()
     el = _mock_element("18:00 - 19:00 Court 1", btn_text="Sold Out")
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_fully_booked_with_book_button():
+    """Fully booked text + disabled 'Book' button → unavailable (regression test)."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "08:00 - 09:00 60min Highbury Fields Tennis £12.35 Fully booked Book",
+        btn_text="Book",
+        btn_disabled=True,
+        has_fully_booked_el=True,
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.start_time == time(8, 0)
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_spaces_available():
+    """'X spaces available' text → available."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "09:00 - 10:00 60min Highbury Fields Tennis £12.35 2 spaces available",
+        btn_text="Book",
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.start_time == time(9, 0)
+    assert slot.is_available is True
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_disabled_button():
+    """Disabled button → unavailable even without explicit text."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "18:00 - 19:00 Court 1 £5.50",
+        btn_text="Book",
+        btn_disabled=True,
+    )
     slot = await _extract_slot_from_element(el, cfg)
     assert slot is not None
     assert slot.is_available is False
