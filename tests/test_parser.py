@@ -159,7 +159,7 @@ async def test_extract_slot_with_time_range():
 @pytest.mark.asyncio
 async def test_extract_slot_single_time():
     cfg = load_selectors()
-    el = _mock_element("18:00 Court 2")
+    el = _mock_element("18:00 Court 2 £5.50")
     slot = await _extract_slot_from_element(el, cfg)
     assert slot is not None
     assert slot.start_time == time(18, 0)
@@ -170,7 +170,7 @@ async def test_extract_slot_single_time():
 @pytest.mark.asyncio
 async def test_extract_slot_unavailable_class():
     cfg = load_selectors()
-    el = _mock_element("18:00 - 19:00 Court 1", classes="slot disabled")
+    el = _mock_element("18:00 - 19:00 Court 1 £5.50", classes="slot disabled")
     slot = await _extract_slot_from_element(el, cfg)
     assert slot is not None
     assert slot.is_available is False
@@ -179,7 +179,7 @@ async def test_extract_slot_unavailable_class():
 @pytest.mark.asyncio
 async def test_extract_slot_unavailable_text():
     cfg = load_selectors()
-    el = _mock_element("18:00 - 19:00 Court 1 Sold Out")
+    el = _mock_element("18:00 - 19:00 Court 1 £5.50 Sold Out")
     slot = await _extract_slot_from_element(el, cfg)
     assert slot is not None
     assert slot.is_available is False
@@ -298,6 +298,35 @@ async def test_extract_slot_zero_spaces():
 
 
 @pytest.mark.asyncio
+async def test_extract_slot_no_button_no_price():
+    """Element with time but no button and no price → not a real slot (None)."""
+    cfg = load_selectors()
+    el = _mock_element("Opening hours: 09:00 - 22:00")
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is None
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_no_button_with_price():
+    """Element with time and price but no button → is_available=False."""
+    cfg = load_selectors()
+    el = _mock_element("18:00 - 19:00 Court 1 £5.50")
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_no_button_spaces_available():
+    """'spaces available' text with no button → still available (explicit signal)."""
+    cfg = load_selectors()
+    el = _mock_element("18:00 - 19:00 Court 1 £5.50 2 spaces available")
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is True
+
+
+@pytest.mark.asyncio
 async def test_extract_slot_no_time():
     cfg = load_selectors()
     el = _mock_element("No time info here")
@@ -325,6 +354,21 @@ async def test_try_css_selectors_finds_slots():
     page = _mock_page([el1, el2])
 
     slots = await _try_css_selectors(page, [".slot", ".time-slot"], cfg)
+    assert len(slots) == 2
+    assert slots[0].start_time == time(18, 0)
+    assert slots[1].start_time == time(19, 0)
+
+
+@pytest.mark.asyncio
+async def test_try_css_selectors_deduplicates():
+    """Duplicate slots from nested selectors → only one returned."""
+    cfg = load_selectors()
+    el1 = _mock_element("18:00 - 19:00 Court 1 £5.50", btn_text="Book")
+    el2 = _mock_element("18:00 - 19:00 Court 1 £5.50", btn_text="Book")  # same slot
+    el3 = _mock_element("19:00 - 20:00 Court 2 £5.50", btn_text="Book")
+    page = _mock_page([el1, el2, el3])
+
+    slots = await _try_css_selectors(page, [".slot"], cfg)
     assert len(slots) == 2
     assert slots[0].start_time == time(18, 0)
     assert slots[1].start_time == time(19, 0)
