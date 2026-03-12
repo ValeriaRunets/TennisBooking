@@ -99,6 +99,7 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
     text_lower = text.lower()
     is_available = True
     explicitly_unavailable = False
+    explicitly_available = False
 
     unavail_classes = cfg.get("unavailable_classes", [])
     if any(kw in classes.lower() for kw in unavail_classes):
@@ -127,6 +128,7 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
     elif "space available" in text_lower or "spaces available" in text_lower:
         is_available = True
         explicitly_unavailable = False
+        explicitly_available = True
 
     # Find the actual Book button — search all <a>/<button> for one with "book" text
     book_btn = None
@@ -155,6 +157,20 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
         elif "book" in btn_text and not explicitly_unavailable:
             is_available = True
 
+    # No book button and no explicit availability signal → not bookable
+    if not book_btn and not explicitly_available:
+        is_available = False
+
+    # Extract price
+    price_pattern = cfg.get("price_pattern", r"£[\d.]+")
+    price_match = re.search(price_pattern, text)
+    price = price_match.group(0) if price_match else None
+
+    # A real booking slot should have at least a price or a book button
+    if not price and not book_btn:
+        logger.debug("Skipping element with time %s-%s: no price or book button found", start, end)
+        return None
+
     logger.debug(
         "Slot %s-%s %s: available=%s (text_unavail=%s, btn_disabled=%s, aria_disabled=%s)",
         start, end, court_name, is_available,
@@ -162,11 +178,6 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
         (await book_btn.get_attribute("disabled")) is not None if book_btn else "no_btn",
         (await book_btn.get_attribute("aria-disabled")) if book_btn else "no_btn",
     )
-
-    # Extract price
-    price_pattern = cfg.get("price_pattern", r"£[\d.]+")
-    price_match = re.search(price_pattern, text)
-    price = price_match.group(0) if price_match else None
 
     return TimeSlot(
         start_time=start,
@@ -185,9 +196,11 @@ async def _try_css_selectors(page: Page, selector_list: list[str], cfg: dict) ->
         return []
 
     slots: list[TimeSlot] = []
+    seen: set[str] = set()
     for el in elements:
         slot = await _extract_slot_from_element(el, cfg)
-        if slot:
+        if slot and slot.key not in seen:
+            seen.add(slot.key)
             slots.append(slot)
 
     return slots
@@ -254,12 +267,14 @@ async def _try_heuristic_search(page: Page, cfg: dict) -> list[TimeSlot]:
     logger.info("Heuristic search found %d candidate containers", len(attrs))
 
     slots: list[TimeSlot] = []
+    seen: set[str] = set()
     for attr in attrs:
         el = await page.query_selector(f"[{attr}]")
         if not el:
             continue
         slot = await _extract_slot_from_element(el, cfg)
-        if slot:
+        if slot and slot.key not in seen:
+            seen.add(slot.key)
             slots.append(slot)
 
     return slots
