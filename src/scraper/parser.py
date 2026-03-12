@@ -96,24 +96,42 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
 
     # Determine availability
     classes = (await el.get_attribute("class")) or ""
+    text_lower = text.lower()
     is_available = True
+    explicitly_unavailable = False
 
     unavail_classes = cfg.get("unavailable_classes", [])
     if any(kw in classes.lower() for kw in unavail_classes):
         is_available = False
+        explicitly_unavailable = True
 
     unavail_text = cfg.get("unavailable_text", [])
-    if any(kw in text.lower() for kw in unavail_text):
+    if any(kw in text_lower for kw in unavail_text):
         is_available = False
+        explicitly_unavailable = True
 
-    # Check for book button as positive signal
+    # Check for FullyBooked component (Better.org.uk specific)
+    fully_booked_el = await el.query_selector("[class*='FullyBooked']")
+    if fully_booked_el:
+        is_available = False
+        explicitly_unavailable = True
+
+    # "X spaces available" is a strong positive signal
+    if "space available" in text_lower or "spaces available" in text_lower:
+        is_available = True
+        explicitly_unavailable = False
+
+    # Check book button — but never override explicit unavailability
     book_btn = await el.query_selector("a, button")
     if book_btn:
         btn_text = (await book_btn.inner_text()).strip().lower()
-        if "book" in btn_text:
-            is_available = True
+        btn_disabled = await book_btn.get_attribute("disabled")
+        if btn_disabled is not None:
+            is_available = False
         elif "sold" in btn_text or "full" in btn_text:
             is_available = False
+        elif "book" in btn_text and not explicitly_unavailable:
+            is_available = True
 
     # Extract price
     price_pattern = cfg.get("price_pattern", r"£[\d.]+")
