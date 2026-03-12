@@ -21,39 +21,66 @@ from src.scraper.parser import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _make_btn_mock(
+    text: str,
+    disabled: bool = False,
+    aria_disabled: str | None = None,
+    btn_classes: str = "",
+) -> AsyncMock:
+    """Create a mock button/link element."""
+    btn = AsyncMock()
+    btn.inner_text = AsyncMock(return_value=text)
+
+    def _btn_get_attribute(attr):
+        if attr == "disabled":
+            return "" if disabled else None
+        if attr == "aria-disabled":
+            return aria_disabled
+        if attr == "class":
+            return btn_classes
+        return None
+
+    btn.get_attribute = AsyncMock(side_effect=_btn_get_attribute)
+    return btn
+
+
 def _mock_element(
     text: str,
     classes: str = "",
     btn_text: str | None = None,
     btn_disabled: bool = False,
+    btn_aria_disabled: str | None = None,
+    btn_classes: str = "",
     has_fully_booked_el: bool = False,
+    extra_buttons: list[AsyncMock] | None = None,
 ) -> AsyncMock:
     """Create a mock Playwright ElementHandle."""
     el = AsyncMock()
     el.inner_text = AsyncMock(return_value=text)
     el.get_attribute = AsyncMock(return_value=classes)
 
-    # Build button mock
-    btn = None
+    # Build button list for query_selector_all("a, button")
+    buttons: list[AsyncMock] = []
+    if extra_buttons:
+        buttons.extend(extra_buttons)
     if btn_text is not None:
-        btn = AsyncMock()
-        btn.inner_text = AsyncMock(return_value=btn_text)
-        btn.get_attribute = AsyncMock(
-            return_value="" if btn_disabled else None
-        )
+        buttons.append(_make_btn_mock(
+            btn_text,
+            disabled=btn_disabled,
+            aria_disabled=btn_aria_disabled,
+            btn_classes=btn_classes,
+        ))
 
     # Build FullyBooked element mock
     fully_booked_mock = AsyncMock() if has_fully_booked_el else None
 
-    # query_selector is called twice: first for "[class*='FullyBooked']", then for "a, button"
     async def _query_selector(selector):
-        if "FullyBooked" in selector:
+        if "FullyBooked" in selector or "fullyBooked" in selector or "fully-booked" in selector:
             return fully_booked_mock
-        if selector == "a, button":
-            return btn
         return None
 
     el.query_selector = _query_selector
+    el.query_selector_all = AsyncMock(return_value=buttons)
     return el
 
 
@@ -203,6 +230,65 @@ async def test_extract_slot_disabled_button():
     cfg = load_selectors()
     el = _mock_element(
         "18:00 - 19:00 Court 1 £5.50",
+        btn_text="Book",
+        btn_disabled=True,
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_aria_disabled_button():
+    """Link with aria-disabled='true' → unavailable."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "18:00 - 19:00 Court 1 £5.50",
+        btn_text="Book",
+        btn_aria_disabled="true",
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_book_button_found_among_multiple():
+    """Multiple <a> tags — the one with 'Book' text should be used for availability."""
+    cfg = load_selectors()
+    # First link is an activity name (not disabled), second is the Book button (disabled)
+    activity_link = _make_btn_mock("Highbury Fields Tennis")
+    el = _mock_element(
+        "18:00 - 19:00 Highbury Fields Tennis £12.35",
+        extra_buttons=[activity_link],
+        btn_text="Book",
+        btn_disabled=True,
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_disabled_button_class():
+    """Button with 'disabled' CSS class → unavailable."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "18:00 - 19:00 Court 1 £5.50",
+        btn_text="Book",
+        btn_classes="btn btn-primary disabled",
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is not None
+    assert slot.is_available is False
+
+
+@pytest.mark.asyncio
+async def test_extract_slot_zero_spaces():
+    """'0 spaces available' → unavailable."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "09:00 - 10:00 60min Highbury Fields Tennis £12.35 0 spaces available",
         btn_text="Book",
         btn_disabled=True,
     )
