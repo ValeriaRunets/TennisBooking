@@ -53,11 +53,14 @@ def _mock_element(
     btn_classes: str = "",
     has_fully_booked_el: bool = False,
     extra_buttons: list[AsyncMock] | None = None,
+    visible: bool = True,
+    children: list[AsyncMock] | None = None,
 ) -> AsyncMock:
     """Create a mock Playwright ElementHandle."""
     el = AsyncMock()
     el.inner_text = AsyncMock(return_value=text)
     el.get_attribute = AsyncMock(return_value=classes)
+    el.is_visible = AsyncMock(return_value=visible)
 
     # Build button list for query_selector_all("a, button")
     buttons: list[AsyncMock] = []
@@ -80,7 +83,17 @@ def _mock_element(
         return None
 
     el.query_selector = _query_selector
-    el.query_selector_all = AsyncMock(return_value=buttons)
+
+    # query_selector_all dispatches based on selector
+    _children = children or []
+
+    async def _query_selector_all(selector):
+        if "ClassCardComponent" in selector:
+            return _children
+        # Default: return buttons (for "a, button" queries)
+        return buttons
+
+    el.query_selector_all = _query_selector_all
     return el
 
 
@@ -298,6 +311,19 @@ async def test_extract_slot_zero_spaces():
 
 
 @pytest.mark.asyncio
+async def test_extract_slot_hidden_element():
+    """Hidden element → None (skipped)."""
+    cfg = load_selectors()
+    el = _mock_element(
+        "18:00 - 19:00 Court 1 £5.50",
+        btn_text="Book",
+        visible=False,
+    )
+    slot = await _extract_slot_from_element(el, cfg)
+    assert slot is None
+
+
+@pytest.mark.asyncio
 async def test_extract_slot_no_button_no_price():
     """Element with time but no button and no price → not a real slot (None)."""
     cfg = load_selectors()
@@ -369,6 +395,27 @@ async def test_try_css_selectors_deduplicates():
     page = _mock_page([el1, el2, el3])
 
     slots = await _try_css_selectors(page, [".slot"], cfg)
+    assert len(slots) == 2
+    assert slots[0].start_time == time(18, 0)
+    assert slots[1].start_time == time(19, 0)
+
+
+@pytest.mark.asyncio
+async def test_try_css_selectors_splits_wrapper():
+    """Wrapper element with multiple times → splits into individual child slots."""
+    cfg = load_selectors()
+    # Child slot elements (individual cards)
+    child1 = _mock_element("18:00 - 19:00 Court 1 £5.50", btn_text="Book")
+    child2 = _mock_element("19:00 - 20:00 Court 2 £5.50", btn_text="Book")
+    # Wrapper element containing all text (multiple time patterns)
+    wrapper = _mock_element(
+        "18:00 - 19:00 Court 1 £5.50 Book 19:00 - 20:00 Court 2 £5.50 Book",
+        btn_text="Book",
+        children=[child1, child2],
+    )
+    page = _mock_page([wrapper])
+
+    slots = await _try_css_selectors(page, [".wrapper"], cfg)
     assert len(slots) == 2
     assert slots[0].start_time == time(18, 0)
     assert slots[1].start_time == time(19, 0)

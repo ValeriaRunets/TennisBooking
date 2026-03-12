@@ -1,10 +1,10 @@
 {
   "slot_selectors": [
-    "[class*='ByTimeListComponent__Wrap']"
+    "[class*='ClassCardComponent__Wrap']",
+    "[class*='ClassCardComponent__Row']"
   ],
   "fallback_selectors": [
-    "[class*='ClassCardComponent__Wrap']",
-    "[class*='ClassCardComponent__Row']",
+    "[class*='ByTimeListComponent__Wrap']",
     ".activity-card", ".slot", ".time-slot", ".booking-slot",
     "[data-activity]", ".event-card", ".timetable__item"
   ],

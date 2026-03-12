@@ -71,6 +71,13 @@ def _parse_time(text: str) -> time | None:
 
 async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot | None:
     """Extract a TimeSlot from a DOM element containing booking info."""
+    # Skip hidden elements (CSS display:none, visibility:hidden, etc.)
+    try:
+        if not await el.is_visible():
+            return None
+    except Exception:
+        pass  # Some element types don't support is_visible; continue parsing
+
     text = (await el.inner_text()).strip()
     if not text:
         return None
@@ -188,6 +195,12 @@ async def _extract_slot_from_element(el: ElementHandle, cfg: dict) -> TimeSlot |
     )
 
 
+_CHILD_SLOT_SELECTORS = (
+    "[class*='ClassCardComponent__Wrap'], "
+    "[class*='ClassCardComponent__Row']"
+)
+
+
 async def _try_css_selectors(page: Page, selector_list: list[str], cfg: dict) -> list[TimeSlot]:
     """Level 1: Try CSS selectors to find slot elements."""
     combined = ", ".join(selector_list)
@@ -195,9 +208,31 @@ async def _try_css_selectors(page: Page, selector_list: list[str], cfg: dict) ->
     if not elements:
         return []
 
+    time_pattern = cfg.get("time_pattern", r"(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})")
     slots: list[TimeSlot] = []
     seen: set[str] = set()
+
     for el in elements:
+        # Detect wrapper elements that contain multiple time slots
+        text = (await el.inner_text()).strip()
+        time_count = len(re.findall(time_pattern, text))
+
+        if time_count > 1:
+            # Likely a list wrapper — try to find individual slot children
+            children = await el.query_selector_all(_CHILD_SLOT_SELECTORS)
+            if children:
+                logger.debug(
+                    "Wrapper element with %d time patterns → splitting into %d children",
+                    time_count, len(children),
+                )
+                for child in children:
+                    slot = await _extract_slot_from_element(child, cfg)
+                    if slot and slot.key not in seen:
+                        seen.add(slot.key)
+                        slots.append(slot)
+                continue
+
+        # Single slot element
         slot = await _extract_slot_from_element(el, cfg)
         if slot and slot.key not in seen:
             seen.add(slot.key)
