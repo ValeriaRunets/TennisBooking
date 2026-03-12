@@ -12,8 +12,28 @@ logger = logging.getLogger(__name__)
 # Stealth settings
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+
+# Common cookie consent button selectors (GDPR banners)
+_COOKIE_ACCEPT_SELECTORS = [
+    "button#onetrust-accept-btn-handler",
+    "button[data-testid='accept-cookies']",
+    "button.cookie-accept",
+    "button[class*='accept']",
+    "a[class*='accept']",
+    "#ccc-notify-accept",
+    "#ccc-recommended-settings",
+    ".ccc-accept-button",
+    "button[aria-label*='accept']",
+    "button[aria-label*='Accept']",
+    "button:has-text('Accept')",
+    "button:has-text('Accept All')",
+    "button:has-text('Accept all')",
+    "button:has-text('Got it')",
+    "button:has-text('I agree')",
+    "button:has-text('OK')",
+]
 
 
 class BrowserManager:
@@ -65,6 +85,12 @@ class BrowserManager:
             if wait_selector:
                 await page.wait_for_selector(wait_selector, timeout=15_000)
 
+            # Dismiss cookie consent banners
+            await self._dismiss_cookie_banner(page)
+
+            # Wait for actual booking content to render (SPA may still be loading)
+            await self._wait_for_content(page)
+
             # Random delay to appear human
             await page.wait_for_timeout(random.randint(1000, 3000))
         except Exception:
@@ -72,3 +98,40 @@ class BrowserManager:
             raise
 
         return page
+
+    async def _dismiss_cookie_banner(self, page: Page) -> None:
+        """Try to dismiss cookie consent banners."""
+        for selector in _COOKIE_ACCEPT_SELECTORS:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=500):
+                    await btn.click(timeout=2000)
+                    logger.info("Dismissed cookie banner via: %s", selector)
+                    await page.wait_for_timeout(500)
+                    return
+            except Exception:
+                continue
+
+    async def _wait_for_content(self, page: Page, timeout_ms: int = 10_000) -> None:
+        """Wait for booking content to appear in the DOM.
+
+        Polls for time patterns (HH:MM) in the page body text, which indicates
+        that the SPA has finished rendering booking slots.
+        """
+        try:
+            await page.wait_for_function(
+                """
+                () => {
+                    const body = document.body ? document.body.innerText : '';
+                    const timePattern = /\\d{1,2}:\\d{2}/;
+                    return timePattern.test(body);
+                }
+                """,
+                timeout=timeout_ms,
+            )
+            logger.debug("Content with time patterns detected")
+        except Exception:
+            logger.warning(
+                "Timed out waiting for time patterns in page content "
+                "(page may be empty or structure changed)"
+            )

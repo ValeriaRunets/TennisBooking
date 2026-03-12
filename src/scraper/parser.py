@@ -150,6 +150,7 @@ _HEURISTIC_JS = """
 () => {
     const timeRe = /\\d{1,2}:\\d{2}/;
     const priceRe = /£/;
+    const bookRe = /book/i;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const containers = new Set();
     while (walker.nextNode()) {
@@ -157,17 +158,22 @@ _HEURISTIC_JS = """
         if (txt && timeRe.test(txt)) {
             let el = walker.currentNode.parentElement;
             let candidate = null;
-            while (el && el !== document.body) {
+            let depth = 0;
+            while (el && el !== document.body && depth < 15) {
                 const tag = el.tagName.toLowerCase();
-                if (['li', 'tr', 'article', 'section'].includes(tag) ||
-                    (tag === 'div' && el.children.length > 1)) {
+                // Accept any semantic container, or divs/spans with content
+                if (['li', 'tr', 'article', 'section', 'a'].includes(tag) ||
+                    (tag === 'div' && el.children.length >= 1) ||
+                    (tag === 'div' && el.textContent.length > 20)) {
                     candidate = el;
-                    // Keep walking up until we find a container with price info
-                    if (priceRe.test(el.textContent)) {
+                    // Stop at a container with price or booking info
+                    const content = el.textContent;
+                    if (priceRe.test(content) || bookRe.test(content)) {
                         break;
                     }
                 }
                 el = el.parentElement;
+                depth++;
             }
             if (candidate) containers.add(candidate);
         }
@@ -243,9 +249,13 @@ async def parse_availability(page: Page) -> list[TimeSlot]:
         return slots
 
     # Level 3: nothing found — dump page for debugging
+    html = await page.content()
+    time_count = len(re.findall(r"\d{1,2}:\d{2}", html))
     logger.warning(
-        "No slots found by any method. The page structure may have changed. "
-        "Dumping HTML for inspection. Use /calibrate to diagnose."
+        "No slots found by any method. Page has %d time patterns in raw HTML. "
+        "The page structure may have changed. "
+        "Dumping HTML for inspection. Use /calibrate to diagnose.",
+        time_count,
     )
     await dump_page_html(page)
     return []

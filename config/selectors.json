@@ -1,12 +1,31 @@
 {
   "slot_selectors": [
     "[class*='ClassCardComponent__Wrap']",
-    "[class*='ByTimeListComponent__Wrap']"
+    "[class*='ByTimeListComponent__Wrap']",
+    "[class*='ClassCard']",
+    "[class*='ByTimeList']",
+    "[class*='TimeSlot']",
+    "[class*='timeslot']",
+    "[class*='ActivityCard']",
+    "[class*='activity-card']",
+    "[class*='BookingCard']",
+    "[class*='booking-card']",
+    "[class*='SlotCard']",
+    "[class*='slot-card']",
+    "[data-testid*='slot']",
+    "[data-testid*='time']",
+    "[data-testid*='activity']",
+    "[data-testid*='booking']"
   ],
   "fallback_selectors": [
     "[class*='ClassCardComponent__Row']",
     ".activity-card", ".slot", ".time-slot", ".booking-slot",
-    "[data-activity]", ".event-card", ".timetable__item"
+    "[data-activity]", ".event-card", ".timetable__item",
+    "[class*='Slot']", "[class*='Booking']",
+    "[class*='court']", "[class*='Court']",
+    ".card", ".list-group-item",
+    "li[class*='item']", "div[class*='item']",
+    "li[class*='row']", "div[class*='row']"
   ],
   "unavailable_classes": ["disabled", "unavailable", "sold-out", "full", "booked"],
   "unavailable_text": ["sold out", "fully booked", "unavailable", "no availability"],
