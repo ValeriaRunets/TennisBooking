@@ -83,6 +83,42 @@ def test_update_link_label(tmp_path: Path):
     assert state.links[0].label == "New Label"
 
 
+def test_notification_tracking_roundtrip(tmp_path: Path):
+    state_file = tmp_path / "state.json"
+    mgr = StateManager(state_file)
+
+    link = MonitoredLink(url="https://example.com")
+    link.notified_keys = {"18:00-Court 1", "19:00-Court 2"}
+    link.consecutive_failures = 3
+    link.failure_notified = True
+    mgr.add_link(link)
+
+    loaded = mgr.load().links[0]
+    assert loaded.notified_keys == {"18:00-Court 1", "19:00-Court 2"}
+    assert loaded.consecutive_failures == 3
+    assert loaded.failure_notified is True
+
+
+def test_update_resets_notification_tracking(tmp_path: Path):
+    state_file = tmp_path / "state.json"
+    mgr = StateManager(state_file)
+
+    link = MonitoredLink(url="https://example.com", time_start=time(18, 0), time_end=time(20, 0))
+    link.notified_keys = {"18:00-Court 1"}
+    mgr.add_link(link)
+
+    # Changing the time window invalidates previous notifications
+    assert mgr.update_link(link.id, time_start=time(19, 0), time_end=time(21, 0)) is True
+    assert mgr.load().links[0].notified_keys == set()
+
+    # Changing the label does not
+    state = mgr.load()
+    state.links[0].notified_keys = {"19:00-Court 1"}
+    mgr.save(state)
+    assert mgr.update_link(link.id, label="New") is True
+    assert mgr.load().links[0].notified_keys == {"19:00-Court 1"}
+
+
 def test_load_empty(tmp_path: Path):
     state_file = tmp_path / "state.json"
     mgr = StateManager(state_file)

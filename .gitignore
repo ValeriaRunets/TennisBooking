@@ -12,7 +12,7 @@ build/
 venv/
 env/
 
-data/state.json
+data/
 browser_data/
 
 .pytest_cache/

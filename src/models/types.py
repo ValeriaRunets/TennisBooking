@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Optional
 
 
@@ -27,7 +27,13 @@ class MonitoredLink:
     label: str = ""
     active: bool = True
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # Slot keys already alerted about; a key is dropped when its slot
+    # disappears so the slot alerts again if it frees up later.
+    notified_keys: set[str] = field(default_factory=set)
+    # Consecutive checks where the page yielded no slots at all.
+    consecutive_failures: int = 0
+    failure_notified: bool = False
 
     def matches_slot(self, slot: TimeSlot) -> bool:
         if not slot.is_available:

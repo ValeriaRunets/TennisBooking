@@ -27,6 +27,18 @@ def format_link_list(links: list[MonitoredLink]) -> str:
     return "\n".join(lines)
 
 
+def format_parse_failure_warning(link: MonitoredLink) -> str:
+    name = link.label or link.url
+    return (
+        f"⚠️ <b>Trouble checking a link</b>\n"
+        f"📍 {name}\n\n"
+        f"The last few checks found no slots at all. The page structure may "
+        f"have changed, or the date in the URL may have passed.\n\n"
+        f"Try <code>/check {link.id}</code> to see what happens, or "
+        f"<code>/edit {link.id} url ...</code> to point it at a fresh page."
+    )
+
+
 def format_slot_alert(link: MonitoredLink, matching_slots: list[TimeSlot]) -> str:
     name = link.label or "Link"
     lines = [

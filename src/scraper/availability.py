@@ -37,8 +37,13 @@ class AvailabilityFetcher:
             if page:
                 await page.close()
 
-    async def fetch_url_with_retry(self, url: str, max_retries: int = 2) -> list[TimeSlot]:
-        """Fetch with retries and exponential backoff."""
+    async def fetch_url_with_retry(self, url: str, max_retries: int = 1) -> list[TimeSlot]:
+        """Fetch with retries and backoff.
+
+        An empty result normally means the parser failed or the page is
+        genuinely empty (a live page shows booked slots too), so one retry
+        is enough — repeated failures are surfaced to the user by the checker.
+        """
         for attempt in range(max_retries + 1):
             slots = await self.fetch_url(url)
             if slots:
@@ -51,7 +56,7 @@ class AvailabilityFetcher:
         logger.error("All retries failed for %s", url)
         return []
 
-    async def fetch_multiple(self, urls: list[str], max_retries: int = 2) -> dict[str, list[TimeSlot]]:
+    async def fetch_multiple(self, urls: list[str], max_retries: int = 1) -> dict[str, list[TimeSlot]]:
         """Fetch availability for multiple URLs sequentially.
 
         Returns a dict keyed by URL.
