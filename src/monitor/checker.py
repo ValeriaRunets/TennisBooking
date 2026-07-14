@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from telegram.ext import ContextTypes
+from telegram import Bot
 
 from src.bot.formatters import format_parse_failure_warning, format_slot_alert
 from src.models.types import MonitoredLink, TimeSlot
@@ -28,7 +28,7 @@ class AvailabilityChecker:
         self._state = state
         self._chat_id = chat_id
 
-    async def check_all_links(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def check_all_links(self, bot: Bot) -> None:
         state = self._state.load()
         if not state.monitoring_enabled:
             logger.debug("Monitoring is paused, skipping check")
@@ -46,7 +46,7 @@ class AvailabilityChecker:
 
         checked: dict[str, MonitoredLink] = {}
         for link in active_links:
-            await self._process_link(context, link, all_slots.get(link.url, []))
+            await self._process_link(bot, link, all_slots.get(link.url, []))
             checked[link.id] = link
 
         self._apply_updates(checked)
@@ -54,7 +54,7 @@ class AvailabilityChecker:
 
     async def _process_link(
         self,
-        context: ContextTypes.DEFAULT_TYPE,
+        bot: Bot,
         link: MonitoredLink,
         slots: list[TimeSlot],
     ) -> None:
@@ -72,7 +72,7 @@ class AvailabilityChecker:
                 link.consecutive_failures >= FAILURE_ALERT_THRESHOLD
                 and not link.failure_notified
             ):
-                if await self._send(context, format_parse_failure_warning(link)):
+                if await self._send(bot, format_parse_failure_warning(link)):
                     link.failure_notified = True
             return
 
@@ -92,12 +92,12 @@ class AvailabilityChecker:
             "Found %d new matching slots for link %s (%s)",
             len(new_slots), link.id, link.time_description,
         )
-        if await self._send(context, format_slot_alert(link, new_slots)):
+        if await self._send(bot, format_slot_alert(link, new_slots)):
             link.notified_keys |= {s.key for s in new_slots}
 
-    async def _send(self, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    async def _send(self, bot: Bot, text: str) -> bool:
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=self._chat_id,
                 text=text,
                 parse_mode="HTML",

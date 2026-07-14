@@ -12,7 +12,9 @@ build/
 venv/
 env/
 
-data/
+# data/state.json is tracked: it's the source of truth for monitored links
+# in the GitHub Actions deploy (see DEPLOY.md). Debug dumps stay local.
+data/debug/
 browser_data/
 
 .pytest_cache/
