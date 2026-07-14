@@ -1,12 +1,12 @@
 {
   "links": [
     {
-      "id": "example1",
-      "url": "https://bookings.better.org.uk/location/islington-tennis-centre/highbury-tennis/2026-07-20/by-time",
-      "time_start": "18:00",
+      "id": "sat1",
+      "url": "https://bookings.better.org.uk/location/islington-tennis-centre/highbury-tennis/2026-07-19/by-time",
+      "time_start": "09:00",
       "time_end": "21:00",
-      "label": "Example - edit me and set active to true",
-      "active": false,
+      "label": "Highbury Sat",
+      "active": true,
       "created_at": ""
     }
   ],
