@@ -11,6 +11,18 @@
       "notified_keys": [],
       "consecutive_failures": 0,
       "failure_notified": false
+    },
+    {
+      "id": "test",
+      "url": "https://bookings.better.org.uk/location/islington-tennis-centre/highbury-tennis/2026-07-16/by-time",
+      "time_start": "09:00",
+      "time_end": "21:00",
+      "label": "test",
+      "active": true,
+      "created_at": "",
+      "notified_keys": [],
+      "consecutive_failures": 0,
+      "failure_notified": false
     }
   ],
   "monitoring_enabled": true
