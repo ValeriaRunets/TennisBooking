@@ -8,7 +8,9 @@
       "label": "Highbury Sat",
       "active": true,
       "created_at": "",
-      "notified_keys": [],
+      "notified_keys": [
+        "20:00-Court"
+      ],
       "consecutive_failures": 0,
       "failure_notified": false
     },
@@ -20,7 +22,10 @@
       "label": "test",
       "active": true,
       "created_at": "",
-      "notified_keys": [],
+      "notified_keys": [
+        "14:00-Court",
+        "15:00-Court"
+      ],
       "consecutive_failures": 0,
       "failure_notified": false
     }
