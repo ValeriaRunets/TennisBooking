@@ -7,7 +7,10 @@
       "time_end": "21:00",
       "label": "Highbury Sat",
       "active": true,
-      "created_at": ""
+      "created_at": "",
+      "notified_keys": [],
+      "consecutive_failures": 0,
+      "failure_notified": false
     }
   ],
   "monitoring_enabled": true
