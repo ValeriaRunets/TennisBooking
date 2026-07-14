@@ -12,6 +12,11 @@ A Telegram bot that monitors tennis court booking pages on [bookings.better.org.
    - **Level 3** — Full HTML dump for manual debugging if parsing fails
 4. When a matching slot is found, the bot sends a Telegram alert with a direct booking link.
 
+Each slot is alerted **once** — you won't be re-notified every poll cycle while
+it stays free, but if a slot gets booked and later frees up again, you'll get a
+new alert. If a page repeatedly yields no slots at all (site layout changed, or
+the date in the URL has passed), the bot warns you instead of failing silently.
+
 State is persisted to a JSON file, so monitored links survive restarts.
 
 ## Available Commands
@@ -41,6 +46,9 @@ State is persisted to a JSON file, so monitored links survive restarts.
 ```
 
 ## How to Run
+
+Want it running 24/7 without your laptop? See [DEPLOY.md](DEPLOY.md) for a
+free hosting guide (Oracle Cloud Always Free).
 
 ### Prerequisites
 
@@ -84,8 +92,11 @@ Environment variables (see `.env.example`):
 ## Running Tests
 
 ```bash
+pip install pytest pytest-asyncio
 pytest tests/
 ```
+
+Tests run automatically in CI on every push (`.github/workflows/tests.yml`).
 
 ## Project Structure
 
@@ -101,16 +112,12 @@ src/
     browser.py             # Playwright browser management
     availability.py        # Fetch availability from URLs
     parser.py              # 3-level adaptive HTML parser
-    locations.py           # Venue discovery
   monitor/
     state.py               # JSON state persistence
-    checker.py             # Core monitoring logic
+    checker.py             # Core monitoring logic (alert dedup, failure warnings)
     scheduler.py           # Periodic check scheduling
-  services/
-    geocoding.py           # Postcode geocoding utilities
 config/
   settings.py              # Environment variable loading
-  locations.json           # Configured tennis venues
   selectors.json           # CSS selectors for scraping
 tests/                     # Unit tests (pytest)
 ```

@@ -23,6 +23,9 @@ def _link_to_dict(link: MonitoredLink) -> dict:
         "label": link.label,
         "active": link.active,
         "created_at": link.created_at,
+        "notified_keys": sorted(link.notified_keys),
+        "consecutive_failures": link.consecutive_failures,
+        "failure_notified": link.failure_notified,
     }
 
 
@@ -35,6 +38,9 @@ def _link_from_dict(d: dict) -> MonitoredLink:
         label=d.get("label", ""),
         active=d.get("active", True),
         created_at=d.get("created_at", ""),
+        notified_keys=set(d.get("notified_keys", [])),
+        consecutive_failures=d.get("consecutive_failures", 0),
+        failure_notified=d.get("failure_notified", False),
     )
 
 
@@ -99,10 +105,16 @@ class StateManager:
             if link.id == link_id:
                 if url is not None:
                     link.url = url
+                    link.consecutive_failures = 0
+                    link.failure_notified = False
                 if time_start is not ...:
                     link.time_start = time_start
                 if time_end is not ...:
                     link.time_end = time_end
+                if url is not None or time_start is not ... or time_end is not ...:
+                    # URL or time window changed — previous notifications no
+                    # longer describe what this link is watching.
+                    link.notified_keys = set()
                 if label is not None:
                     link.label = label
                 self.save(state)

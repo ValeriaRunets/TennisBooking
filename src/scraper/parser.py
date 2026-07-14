@@ -6,10 +6,9 @@ parsing strategy:
 
   Level 1: CSS selectors from config/selectors.json
   Level 2: Heuristic DOM search (find elements containing time patterns)
-  Level 3: Full page dump for manual inspection
+  Level 3: Full page dump for manual inspection (data/debug/)
 
 Selectors can be updated in config/selectors.json without code changes.
-Use the /calibrate bot command to analyze a live page and diagnose issues.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from src.models.types import TimeSlot
 logger = logging.getLogger(__name__)
 
 _SELECTORS_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "selectors.json"
-_DUMP_PATH = "tests/fixtures/sample_page.html"
+_DUMP_PATH = "data/debug/page_dump.html"
 
 # Cached selectors
 _selectors: dict | None = None
@@ -351,8 +350,7 @@ async def parse_availability(page: Page) -> list[TimeSlot]:
     time_count = len(re.findall(r"\d{1,2}:\d{2}", html))
     logger.warning(
         "No slots found by any method. Page has %d time patterns in raw HTML. "
-        "The page structure may have changed. "
-        "Dumping HTML for inspection. Use /calibrate to diagnose.",
+        "The page structure may have changed. Dumping HTML for inspection.",
         time_count,
     )
     await dump_page_html(page)
@@ -374,97 +372,3 @@ async def dump_page_html(page: Page, filepath: str = _DUMP_PATH) -> str:
                 time_count, price_count, book_count)
 
     return filepath
-
-
-async def analyze_page(page: Page) -> dict:
-    """Analyze page DOM structure for /calibrate command.
-
-    Returns a dict with diagnostic information about the page.
-    """
-    cfg = load_selectors()
-
-    # Collect CSS classes
-    all_classes = await page.evaluate("""
-    () => {
-        const counts = {};
-        document.querySelectorAll('*').forEach(el => {
-            el.classList.forEach(cls => {
-                counts[cls] = (counts[cls] || 0) + 1;
-            });
-        });
-        return Object.entries(counts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 30);
-    }
-    """)
-
-    # Count elements with time patterns
-    time_elements = await page.evaluate("""
-    () => {
-        const timeRe = /\\d{1,2}:\\d{2}/;
-        let count = 0;
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-            if (timeRe.test(walker.currentNode.textContent.trim())) count++;
-        }
-        return count;
-    }
-    """)
-
-    # Count price and book elements
-    price_elements = await page.evaluate("""
-    () => {
-        const re = /£[\\d.]+/;
-        let count = 0;
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-            if (re.test(walker.currentNode.textContent)) count++;
-        }
-        return count;
-    }
-    """)
-
-    book_elements = await page.evaluate("""
-    () => {
-        return document.querySelectorAll('a, button').length;
-    }
-    """)
-
-    book_text_elements = await page.evaluate("""
-    () => {
-        const btns = document.querySelectorAll('a, button');
-        let count = 0;
-        btns.forEach(b => { if (b.textContent.toLowerCase().includes('book')) count++; });
-        return count;
-    }
-    """)
-
-    # Try parsing at each level
-    level1_slots = await _try_css_selectors(page, cfg.get("slot_selectors", []), cfg)
-    level1b_slots = await _try_css_selectors(page, cfg.get("fallback_selectors", []), cfg)
-    level2_slots = await _try_heuristic_search(page, cfg)
-
-    # Test individual selectors
-    selector_hits = {}
-    for sel in cfg.get("slot_selectors", []) + cfg.get("fallback_selectors", []):
-        try:
-            count = await page.evaluate(f"document.querySelectorAll('{sel}').length")
-            if count > 0:
-                selector_hits[sel] = count
-        except Exception:
-            pass
-
-    return {
-        "top_classes": all_classes,
-        "time_elements": time_elements,
-        "price_elements": price_elements,
-        "book_buttons": book_elements,
-        "book_text_buttons": book_text_elements,
-        "selector_hits": selector_hits,
-        "level1_count": len(level1_slots),
-        "level1_available": sum(1 for s in level1_slots if s.is_available),
-        "level1b_count": len(level1b_slots),
-        "level1b_available": sum(1 for s in level1b_slots if s.is_available),
-        "level2_count": len(level2_slots),
-        "level2_available": sum(1 for s in level2_slots if s.is_available),
-    }
