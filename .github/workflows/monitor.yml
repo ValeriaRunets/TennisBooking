@@ -4,7 +4,7 @@ on:
   schedule:
     # Every 30 min, 05:00-21:30 UTC (06:00-22:30 London in summer).
     # Cadence/cost trade-offs are explained in DEPLOY.md.
-    - cron: "0,30 5-21 * * *"
+    - cron: "*/15 8-22 * * *"
   workflow_dispatch:
 
 # Never let two check runs overlap (they would race on state.json).
