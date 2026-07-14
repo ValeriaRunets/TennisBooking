@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 async def _monitoring_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     checker: AvailabilityChecker = context.bot_data["checker"]
     try:
-        await checker.check_all_links(context)
+        await checker.check_all_links(context.bot)
     except Exception:
         logger.exception("Error in monitoring cycle")
 

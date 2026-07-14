@@ -34,8 +34,9 @@ def format_parse_failure_warning(link: MonitoredLink) -> str:
         f"📍 {name}\n\n"
         f"The last few checks found no slots at all. The page structure may "
         f"have changed, or the date in the URL may have passed.\n\n"
-        f"Try <code>/check {link.id}</code> to see what happens, or "
-        f"<code>/edit {link.id} url ...</code> to point it at a fresh page."
+        f"Update the link's URL to a fresh page (link id: <code>{link.id}</code>) — "
+        f"via /edit if the bot is running, or by editing data/state.json "
+        f"if deployed on GitHub Actions."
     )
 
 

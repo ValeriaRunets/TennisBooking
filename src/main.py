@@ -1,10 +1,18 @@
-"""Entry point: wires together bot, scraper, scheduler, and state."""
+"""Entry point: wires together bot, scraper, scheduler, and state.
+
+Two modes:
+  python -m src.main          # interactive Telegram bot with periodic checks
+  python -m src.main --once   # one check cycle, then exit (for cron/CI)
+"""
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import logging
 import sys
 
+from telegram import Bot
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 from config.settings import (
@@ -30,6 +38,8 @@ from src.monitor.state import StateManager
 from src.scraper.availability import AvailabilityFetcher
 from src.scraper.browser import BrowserManager
 
+logger = logging.getLogger(__name__)
+
 
 def _setup_logging() -> None:
     logging.basicConfig(
@@ -39,22 +49,36 @@ def _setup_logging() -> None:
     )
 
 
-def main() -> None:
-    _setup_logging()
-    logger = logging.getLogger(__name__)
-
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not set. Copy .env.example to .env and fill in values.")
-        sys.exit(1)
-
-    if not AUTHORIZED_CHAT_ID:
-        logger.warning("AUTHORIZED_CHAT_ID not set — bot will accept commands from anyone!")
-
-    # Initialize components
+def _build_components() -> tuple[BrowserManager, StateManager, AvailabilityFetcher, AvailabilityChecker]:
     browser = BrowserManager()
     state = StateManager()
     fetcher = AvailabilityFetcher(browser)
     checker = AvailabilityChecker(fetcher, state, AUTHORIZED_CHAT_ID)
+    return browser, state, fetcher, checker
+
+
+async def run_once() -> None:
+    """Run a single check cycle and exit — used by the GitHub Actions deploy
+    (see DEPLOY.md) or any external cron."""
+    if not AUTHORIZED_CHAT_ID:
+        logger.error("AUTHORIZED_CHAT_ID must be set in --once mode (alerts need a target chat).")
+        sys.exit(1)
+
+    browser, _, _, checker = _build_components()
+    await browser.start(headless=True)
+    try:
+        async with Bot(TELEGRAM_BOT_TOKEN) as bot:
+            await checker.check_all_links(bot)
+    finally:
+        await browser.stop()
+
+
+def run_polling() -> None:
+    """Start the interactive Telegram bot with the periodic monitoring job."""
+    if not AUTHORIZED_CHAT_ID:
+        logger.warning("AUTHORIZED_CHAT_ID not set — bot will accept commands from anyone!")
+
+    browser, state, fetcher, checker = _build_components()
 
     # Build Telegram application
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -93,6 +117,27 @@ def main() -> None:
 
     logger.info("Bot starting...")
     app.run_polling()
+
+
+def main() -> None:
+    _setup_logging()
+
+    parser = argparse.ArgumentParser(description="Tennis court availability monitor")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one check cycle and exit instead of starting the interactive bot",
+    )
+    args = parser.parse_args()
+
+    if not TELEGRAM_BOT_TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN not set. Copy .env.example to .env and fill in values.")
+        sys.exit(1)
+
+    if args.once:
+        asyncio.run(run_once())
+    else:
+        run_polling()
 
 
 if __name__ == "__main__":

@@ -47,8 +47,9 @@ State is persisted to a JSON file, so monitored links survive restarts.
 
 ## How to Run
 
-Want it running 24/7 without your laptop? See [DEPLOY.md](DEPLOY.md) for a
-free hosting guide (Oracle Cloud Always Free).
+Want it running 24/7 without your laptop? See [DEPLOY.md](DEPLOY.md) for two
+free options: **GitHub Actions** (no server at all) or an Oracle Cloud
+Always Free VM.
 
 ### Prerequisites
 
@@ -73,8 +74,15 @@ playwright install chromium
 export TELEGRAM_BOT_TOKEN=your_token
 export AUTHORIZED_CHAT_ID=your_chat_id
 
-python -m src.main
+python -m src.main          # interactive bot + periodic monitoring
+python -m src.main --once   # single check cycle, then exit (for cron/CI)
 ```
+
+### Option C: GitHub Actions (no server)
+
+The monitor can run as a scheduled workflow (`.github/workflows/monitor.yml`)
+using `--once` mode — completely free, no machine needed. Links are managed by
+editing `data/state.json`. Setup guide: [DEPLOY.md](DEPLOY.md).
 
 ## Configuration
 
