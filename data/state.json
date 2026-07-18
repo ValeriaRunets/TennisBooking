@@ -21,7 +21,7 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 4,
+      "consecutive_failures": 0,
       "failure_notified": false
     },
     {
@@ -45,8 +45,8 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 6,
-      "failure_notified": true
+      "consecutive_failures": 0,
+      "failure_notified": false
     }
   ],
   "monitoring_enabled": true
