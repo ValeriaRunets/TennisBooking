@@ -45,7 +45,7 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 0,
+      "consecutive_failures": 1,
       "failure_notified": false
     }
   ],
