@@ -20,7 +20,9 @@
       "label": "highbury sat",
       "active": true,
       "created_at": "",
-      "notified_keys": [],
+      "notified_keys": [
+        "19:00-Court"
+      ],
       "consecutive_failures": 0,
       "failure_notified": false
     },
