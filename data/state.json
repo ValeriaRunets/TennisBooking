@@ -23,7 +23,7 @@
       "notified_keys": [
         "20:00-Court"
       ],
-      "consecutive_failures": 1,
+      "consecutive_failures": 2,
       "failure_notified": false
     },
     {
@@ -35,7 +35,7 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 3,
+      "consecutive_failures": 4,
       "failure_notified": false
     },
     {
@@ -47,7 +47,7 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 3,
+      "consecutive_failures": 4,
       "failure_notified": false
     }
   ],
