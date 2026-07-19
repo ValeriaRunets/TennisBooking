@@ -20,7 +20,10 @@
       "label": "highbury sat",
       "active": true,
       "created_at": "",
-      "notified_keys": [],
+      "notified_keys": [
+        "18:00-Court",
+        "20:00-Court"
+      ],
       "consecutive_failures": 0,
       "failure_notified": false
     },
@@ -32,10 +35,7 @@
       "label": "rosemary Sun",
       "active": true,
       "created_at": "",
-      "notified_keys": [
-        "17:00-Court",
-        "18:00-Court"
-      ],
+      "notified_keys": [],
       "consecutive_failures": 0,
       "failure_notified": false
     },
@@ -47,9 +47,7 @@
       "label": "rosemary sat",
       "active": true,
       "created_at": "",
-      "notified_keys": [
-        "18:00-Court"
-      ],
+      "notified_keys": [],
       "consecutive_failures": 0,
       "failure_notified": false
     }
