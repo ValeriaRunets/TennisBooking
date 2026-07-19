@@ -21,7 +21,6 @@
       "active": true,
       "created_at": "",
       "notified_keys": [
-        "18:00-Court",
         "20:00-Court"
       ],
       "consecutive_failures": 0,
