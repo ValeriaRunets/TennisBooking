@@ -35,7 +35,7 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 1,
+      "consecutive_failures": 2,
       "failure_notified": false
     },
     {
@@ -47,7 +47,7 @@
       "active": true,
       "created_at": "",
       "notified_keys": [],
-      "consecutive_failures": 1,
+      "consecutive_failures": 2,
       "failure_notified": false
     }
   ],
