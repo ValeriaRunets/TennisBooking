@@ -32,10 +32,7 @@
       "label": "rosemary Sun",
       "active": true,
       "created_at": "",
-      "notified_keys": [
-        "10:00-Court",
-        "11:00-Court"
-      ],
+      "notified_keys": [],
       "consecutive_failures": 0,
       "failure_notified": false
     },
